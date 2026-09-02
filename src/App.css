@@ -173,3 +173,127 @@ body {
   box-shadow: 0 6px 18px rgba(59,130,246,0.35);
 }
 .cta:hover { filter: brightness(1.05); }
+
+/* ---------------- Annotation layer ---------------- */
+.block.annotating { cursor: crosshair; }
+
+.anno-layer { position: absolute; inset: 0; pointer-events: none; }
+
+.anno-region {
+  position: absolute; border-style: solid; border-radius: 3px;
+  pointer-events: auto; cursor: pointer;
+}
+.anno-region.selected { box-shadow: 0 0 0 1px rgba(255,255,255,0.8); }
+
+.anno-draft {
+  position: absolute; border-style: dashed; border-radius: 3px;
+  background: rgba(59,130,246,0.10); pointer-events: none;
+}
+
+.anno-pin {
+  position: absolute; transform-origin: center;
+  width: 22px; height: 22px; border-radius: 50% 50% 50% 2px;
+  border: 1.5px solid #fff; color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer; pointer-events: auto;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.anno-pin.selected { outline: 2px solid #fff; outline-offset: 1px; }
+
+.anno-editor {
+  position: absolute; transform-origin: 0 0; width: 224px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 8px; z-index: 5;
+  pointer-events: auto; cursor: default;
+}
+.anno-editor-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.anno-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.anno-time {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  font-variant-numeric: tabular-nums; margin-right: auto;
+}
+.anno-x {
+  border: none; background: none; cursor: pointer; color: var(--muted);
+  font-size: 12px; padding: 2px 4px; border-radius: 5px; line-height: 1;
+}
+.anno-x:hover { background: var(--bg); color: var(--text); }
+.anno-text {
+  width: 100%; min-height: 64px; resize: vertical; border: none; outline: none;
+  background: transparent; font: inherit; font-size: 13px; line-height: 1.45;
+  color: var(--text); user-select: text;
+}
+
+/* time pins live on a strip just under the clip */
+.anno-timeline { position: absolute; left: 0; right: 0; top: 100%; margin-top: 6px; }
+.anno-track { width: 100%; background: var(--line); border-radius: 2px; }
+.anno-playhead { position: absolute; top: -2px; height: 10px; background: var(--accent); border-radius: 1px; }
+.anno-tick {
+  position: absolute; top: 50%; transform-origin: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1.5px solid #fff; color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer; pointer-events: auto;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.anno-tick.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.anno-pin-btn {
+  align-self: flex-start; border: 1px solid var(--accent); background: var(--accent-soft);
+  color: var(--accent); font-size: 11px; font-weight: 600;
+  border-radius: 6px; padding: 3px 8px; cursor: pointer;
+}
+
+.tool-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px;
+  padding: 0 3px; border-radius: 7px; background: var(--accent); color: #fff;
+  font-size: 9px; font-weight: 700; line-height: 14px; text-align: center;
+}
+.tool-btn { position: relative; }
+
+/* ---------------- Annotation panel ---------------- */
+.anno-panel {
+  width: 280px; min-width: 280px; height: 100%;
+  background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column;
+}
+.anno-panel-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 12px 10px; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.anno-count {
+  margin-right: auto; font-size: 11px; font-weight: 600; color: var(--muted);
+  background: var(--bg); border-radius: 8px; padding: 1px 7px;
+}
+.anno-list { flex: 1; overflow-y: auto; padding: 6px 8px 16px; }
+.anno-group { margin-bottom: 10px; }
+.anno-group-head {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  padding: 6px 6px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.anno-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+}
+.anno-row:hover { background: var(--bg); }
+.anno-row.selected { background: var(--accent-soft); }
+.anno-badge {
+  flex: none; width: 18px; height: 18px; border-radius: 50%; color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.anno-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.anno-row-text {
+  line-height: 1.45; overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.anno-row-text i { color: var(--muted); }
+.anno-row-edit {
+  width: 100%; min-height: 54px; resize: vertical;
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px;
+  font: inherit; font-size: 12.5px; line-height: 1.45; outline: none;
+  background: var(--panel); color: var(--text); user-select: text;
+}
+.anno-row-edit:focus { border-color: var(--accent); }
+.anno-row .file-del { opacity: 0; }
+.anno-row:hover .file-del, .anno-row.selected .file-del { opacity: 1; }
