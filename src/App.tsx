@@ -3,10 +3,11 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
 import Sidebar from "./Sidebar";
+import AnnotationPanel from "./AnnotationPanel";
 import { storage, pickFolder, pickMediaFiles, mediaKind, type DirEntry } from "./storage";
 import { checkForUpdatesOnLaunch } from "./updater";
 import type { CanvasDoc, Item, Tool } from "./types";
-import { emptyDoc, uid } from "./types";
+import { emptyDoc, normalizeDoc, uid } from "./types";
 import "./App.css";
 
 export default function App() {
@@ -25,6 +26,9 @@ export default function App() {
   const [color, setColor] = useState("#111827");
   const [size, setSize] = useState(3);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [showAnnotations, setShowAnnotations] = useState(false);
+  const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
 
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
@@ -98,9 +102,10 @@ export default function App() {
   async function openCanvas(path: string) {
     const text = await storage.readText(path);
     try {
-      const d = JSON.parse(text) as CanvasDoc;
+      const d = normalizeDoc(JSON.parse(text) as CanvasDoc);
       past.current = []; future.current = []; setHist({ u: 0, r: 0 });
       setSelectedId(null);
+      setSelectedAnnotationId(null);
       setCanvasPath(path);
       setDocState(d);
     } catch {
@@ -121,6 +126,7 @@ export default function App() {
     setCanvasPath(path);
     setDocState(d);
     setSelectedId(null);
+    setSelectedAnnotationId(null);
   }
 
   async function newFolder() {
@@ -170,6 +176,25 @@ export default function App() {
     if (newItems.length) setDoc({ ...docRef.current!, items: [...docRef.current!.items, ...newItems] });
   }
 
+  // --- annotations -------------------------------------------------------
+  function setAnnotationText(id: string, text: string) {
+    if (!docRef.current) return;
+    setDoc({ ...docRef.current, annotations: docRef.current.annotations.map((a) => (a.id === id ? { ...a, text } : a)) }, false);
+  }
+
+  function deleteAnnotation(id: string) {
+    if (!docRef.current) return;
+    setDoc({ ...docRef.current, annotations: docRef.current.annotations.filter((a) => a.id !== id) });
+    if (selectedAnnotationId === id) setSelectedAnnotationId(null);
+  }
+
+  // Selecting from the panel both highlights the note and flies the canvas to it.
+  function focusAnnotation(id: string) {
+    setSelectedAnnotationId(id);
+    setSelectedId(null);
+    setFocus((f) => ({ id, nonce: (f?.nonce ?? 0) + 1 }));
+  }
+
   function zoomFit() {
     if (!doc || !areaRef.current) return;
     const rect = areaRef.current.getBoundingClientRect();
@@ -206,9 +231,12 @@ export default function App() {
         return;
       }
       if (typing || e.metaKey || e.ctrlKey) return;
-      const map: Record<string, Tool> = { v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse", a: "arrow", t: "text", n: "note" };
+      const map: Record<string, Tool> = { v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse", a: "arrow", t: "text", n: "note", c: "annotate" };
       const t = map[e.key.toLowerCase()];
-      if (t) setTool(t);
+      if (t) {
+        setTool(t);
+        if (t === "annotate") setShowAnnotations(true);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -241,12 +269,22 @@ export default function App() {
             onUndo={undo} onRedo={redo}
             canUndo={hist.u > 0} canRedo={hist.r > 0}
             onZoomFit={zoomFit}
+            annotationCount={doc.annotations.length}
+            showAnnotations={showAnnotations}
+            onToggleAnnotations={() => setShowAnnotations((v) => !v)}
           />
         )}
         <div className="canvas-area" ref={areaRef}>
           {doc ? (
             <>
-              <Canvas doc={doc} setDoc={setDoc} tool={tool} setTool={setTool} color={color} size={size} selectedId={selectedId} setSelectedId={setSelectedId} />
+              <Canvas
+                doc={doc} setDoc={setDoc} tool={tool} setTool={setTool}
+                color={color} size={size}
+                selectedId={selectedId} setSelectedId={setSelectedId}
+                selectedAnnotationId={selectedAnnotationId}
+                setSelectedAnnotationId={setSelectedAnnotationId}
+                focus={focus}
+              />
               <div className="statusbar">
                 <span>{doc.name}</span>
                 <span>{Math.round(doc.camera.zoom * 100)}%</span>
@@ -261,6 +299,18 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {doc && showAnnotations && (
+        <AnnotationPanel
+          annotations={doc.annotations}
+          items={doc.items}
+          selectedId={selectedAnnotationId}
+          onFocus={focusAnnotation}
+          onChangeText={setAnnotationText}
+          onDelete={deleteAnnotation}
+          onClose={() => setShowAnnotations(false)}
+        />
+      )}
     </div>
   );
 }

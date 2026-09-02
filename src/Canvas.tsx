@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import type { CanvasDoc, Item, Tool, ShapeItem } from "./types";
-import { uid } from "./types";
+import type { Annotation, CanvasDoc, Item, MediaItem, Region, ShapeItem, Tool } from "./types";
+import { fmtTime, uid } from "./types";
 import { fileUrl } from "./storage";
+import AnnotationOverlay from "./Annotations";
 
 interface Props {
   doc: CanvasDoc;
@@ -13,6 +14,10 @@ interface Props {
   size: number;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
+  selectedAnnotationId: string | null;
+  setSelectedAnnotationId: (id: string | null) => void;
+  /** Bumped by the annotation panel to fly the camera to a note. */
+  focus: { id: string; nonce: number } | null;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -56,6 +61,7 @@ function translate(item: Item, dx: number, dy: number): Item {
 // ---- component ----------------------------------------------------------
 export default function Canvas({
   doc, setDoc, tool, setTool, color, size, selectedId, setSelectedId,
+  selectedAnnotationId, setSelectedAnnotationId, focus,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const docRef = useRef(doc);
@@ -63,6 +69,13 @@ export default function Canvas({
 
   const [draft, setDraft] = useState<Item | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // annotation layer: the region being dragged, plus live playback state of
+  // every media element so time pins know which moment is on screen.
+  const [regionDraft, setRegionDraft] = useState<{ id: string; x: number; y: number; w: number; h: number } | null>(null);
+  const mediaEls = useRef(new Map<string, HTMLMediaElement>());
+  const [times, setTimes] = useState<Record<string, number>>({});
+  const [durations, setDurations] = useState<Record<string, number>>({});
 
   // active drag state (drawing / panning / moving / resizing)
   const drag = useRef<any>(null);
@@ -100,9 +113,20 @@ export default function Canvas({
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !isTyping(e)) setSpaceDown(true);
-      if ((e.key === "Backspace" || e.key === "Delete") && selectedId && !isTyping(e)) {
+      if ((e.key === "Backspace" || e.key === "Delete") && !isTyping(e)) {
+        if (selectedAnnotationId) {
+          e.preventDefault();
+          deleteAnnotation(selectedAnnotationId);
+          return;
+        }
+        if (!selectedId) return;
         e.preventDefault();
-        setDoc({ ...docRef.current, items: docRef.current.items.filter((i) => i.id !== selectedId) });
+        // deleting media takes its annotations with it — they have nothing to stick to
+        setDoc({
+          ...docRef.current,
+          items: docRef.current.items.filter((i) => i.id !== selectedId),
+          annotations: docRef.current.annotations.filter((a) => a.targetId !== selectedId),
+        });
         setSelectedId(null);
       }
     };
@@ -115,7 +139,7 @@ export default function Canvas({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [selectedId, setDoc, setSelectedId]);
+  }, [selectedId, selectedAnnotationId, setDoc, setSelectedId]);
 
   // --- background pointer (draw / place / pan) --------------------------
   function onHostPointerDown(e: React.PointerEvent) {
@@ -153,8 +177,13 @@ export default function Canvas({
         setSelectedId(id); setEditingId(id); setTool("select");
         break;
       }
+      case "annotate": // nothing to annotate out here — close any open note and pan
+        setSelectedAnnotationId(null);
+        drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
+        break;
       default: // select on empty background → deselect + pan
         setSelectedId(null);
+        setSelectedAnnotationId(null);
         drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
     }
   }
@@ -175,6 +204,8 @@ export default function Canvas({
     } else if (d.mode === "resize") {
       const dx = p.x - d.startWorld.x, dy = p.y - d.startWorld.y;
       setDoc({ ...docRef.current, items: docRef.current.items.map((i) => (i.id === d.id ? resize(d.orig, dx, dy) : i)) }, false);
+    } else if (d.mode === "annotate") {
+      setRegionDraft((cur) => (cur ? { ...cur, w: p.x - d.startWorld.x, h: p.y - d.startWorld.y } : cur));
     }
   }
 
@@ -190,8 +221,80 @@ export default function Canvas({
         setDoc({ ...docRef.current, items: [...docRef.current.items, normRect(draft)] });
       }
       setDraft(null);
+    } else if (d.mode === "annotate") {
+      const rd = regionDraft;
+      setRegionDraft(null);
+      if (rd) addAnnotation(d.item, worldToRegion(d.item, rd));
     }
   }
+
+  // ---- annotation layer -------------------------------------------------
+  // A rubber-banded world rectangle becomes a region stored 0..1 against the
+  // target, so it keeps hugging the same part of the picture when resized.
+  function worldToRegion(item: MediaItem, rd: { x: number; y: number; w: number; h: number }): Region {
+    const x0 = Math.min(rd.x, rd.x + rd.w), y0 = Math.min(rd.y, rd.y + rd.h);
+    const w = Math.abs(rd.w), h = Math.abs(rd.h);
+    const nx = clamp((x0 - item.x) / item.w, 0, 1);
+    const ny = clamp((y0 - item.y) / item.h, 0, 1);
+    // a click rather than a drag → a point pin
+    const zoom = docRef.current.camera.zoom;
+    if (w * zoom < 6 && h * zoom < 6) return { x: nx, y: ny, w: 0, h: 0 };
+    return { x: nx, y: ny, w: clamp(w / item.w, 0, 1 - nx), h: clamp(h / item.h, 0, 1 - ny) };
+  }
+
+  function addAnnotation(item: MediaItem, region?: Region) {
+    const el = mediaEls.current.get(item.id);
+    const a: Annotation = {
+      id: uid(),
+      targetId: item.id,
+      text: "",
+      color,
+      createdAt: Date.now(),
+      region,
+      time: item.kind === "image" ? undefined : el?.currentTime ?? 0,
+    };
+    setDoc({ ...docRef.current, annotations: [...docRef.current.annotations, a] });
+    setSelectedId(null);
+    setSelectedAnnotationId(a.id);
+  }
+
+  function setAnnotationText(id: string, text: string) {
+    setDoc({ ...docRef.current, annotations: docRef.current.annotations.map((a) => (a.id === id ? { ...a, text } : a)) }, false);
+  }
+
+  function deleteAnnotation(id: string) {
+    setDoc({ ...docRef.current, annotations: docRef.current.annotations.filter((a) => a.id !== id) });
+    setSelectedAnnotationId(null);
+  }
+
+  function seek(targetId: string, t: number) {
+    const el = mediaEls.current.get(targetId);
+    if (!el) return;
+    el.currentTime = t;
+    setTimes((cur) => ({ ...cur, [targetId]: t }));
+  }
+
+  function registerMedia(id: string, el: HTMLMediaElement | null) {
+    if (el) mediaEls.current.set(id, el);
+    else mediaEls.current.delete(id);
+  }
+
+  // Panel asked to visit a note: centre it, and seek there if it has a moment.
+  useEffect(() => {
+    if (!focus) return;
+    const a = docRef.current.annotations.find((x) => x.id === focus.id);
+    if (!a) return;
+    const it = docRef.current.items.find((i) => i.id === a.targetId);
+    if (!it || it.type !== "media") return;
+    const rect = hostRef.current!.getBoundingClientRect();
+    const { zoom } = docRef.current.camera;
+    const rx = a.region ? a.region.x + a.region.w / 2 : 0.5;
+    const ry = a.region ? a.region.y + a.region.h / 2 : 0.5;
+    const px = it.x + rx * it.w, py = it.y + ry * it.h;
+    setDoc({ ...docRef.current, camera: { x: rect.width / 2 - px * zoom, y: rect.height / 2 - py * zoom, zoom } }, false);
+    if (a.time !== undefined) seek(a.targetId, a.time);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   function resize(item: Item, dx: number, dy: number): Item {
     if (item.type === "stroke") return item;
@@ -204,6 +307,15 @@ export default function Canvas({
 
   // --- per-item interactions (select mode) -------------------------------
   function itemPointerDown(e: React.PointerEvent, item: Item) {
+    if (tool === "annotate" && !spaceDown) {
+      if (item.type !== "media") return; // notes stick to media, not to drawings
+      e.stopPropagation();
+      hostRef.current!.setPointerCapture(e.pointerId);
+      const start = screenToWorld(e.clientX, e.clientY);
+      drag.current = { mode: "annotate", item, startWorld: start };
+      setRegionDraft({ id: item.id, x: start.x, y: start.y, w: 0, h: 0 });
+      return;
+    }
     if (tool !== "select" || spaceDown) return;
     e.stopPropagation();
     setSelectedId(item.id);
@@ -225,11 +337,22 @@ export default function Canvas({
     setDoc({ ...docRef.current, items: docRef.current.items.map((i) => (i.id === id && (i.type === "text" || i.type === "note") ? { ...i, text } : i)) }, false);
   }
 
+  // annotations, numbered board-wide so the pin and the panel agree
+  const annos = doc.annotations ?? [];
+  const annoNumber = new Map(annos.map((a, i) => [a.id, i + 1]));
+  const annosByTarget = new Map<string, Annotation[]>();
+  for (const a of annos) {
+    const list = annosByTarget.get(a.targetId);
+    if (list) list.push(a);
+    else annosByTarget.set(a.targetId, [a]);
+  }
+
   const items = draft ? [...doc.items, draft] : doc.items;
   const vectors = items.filter((i) => i.type === "stroke" || i.type === "shape");
   const blocks = items.filter((i) => i.type === "text" || i.type === "note" || i.type === "media");
 
   const cursor = spaceDown || tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
+  const annotating = tool === "annotate";
 
   return (
     <div
@@ -270,7 +393,7 @@ export default function Canvas({
           const b = bbox(it);
           const selected = it.id === selectedId;
           return (
-            <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: b.x, top: b.y, width: b.w, ...(it.type !== "text" ? { height: b.h } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
+            <div key={it.id} className={"block" + (selected ? " selected" : "") + (annotating && it.type === "media" ? " annotating" : "")} style={{ left: b.x, top: b.y, width: b.w, ...(it.type !== "text" ? { height: b.h } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
                   <textarea autoFocus className="text-edit" style={{ color: it.color, fontSize: it.fontSize }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={commitEditing} onPointerDown={(e) => e.stopPropagation()} />
@@ -292,14 +415,68 @@ export default function Canvas({
               {it.type === "media" && (
                 <div className="media">
                   {it.kind === "image" && <img src={fileUrl(it.src)} draggable={false} alt={it.name} />}
-                  {it.kind === "video" && <video src={fileUrl(it.src)} controls onPointerDown={(e) => e.stopPropagation()} />}
+                  {it.kind === "video" && (
+                    <video
+                      ref={(el) => registerMedia(it.id, el)}
+                      src={fileUrl(it.src)}
+                      controls
+                      onTimeUpdate={(e) => { const t = e.currentTarget.currentTime; setTimes((c) => ({ ...c, [it.id]: t })); }}
+                      onLoadedMetadata={(e) => { const d = e.currentTarget.duration; setDurations((c) => ({ ...c, [it.id]: d })); }}
+                      // in annotate mode the drag must reach the item underneath
+                      onPointerDown={(e) => { if (tool !== "annotate") e.stopPropagation(); }}
+                    />
+                  )}
                   {it.kind === "audio" && (
                     <div className="audio-card" onPointerDown={(e) => e.stopPropagation()}>
                       <div className="audio-name">♪ {it.name}</div>
-                      <audio src={fileUrl(it.src)} controls />
+                      <audio
+                        ref={(el) => registerMedia(it.id, el)}
+                        src={fileUrl(it.src)}
+                        controls
+                        onTimeUpdate={(e) => { const t = e.currentTarget.currentTime; setTimes((c) => ({ ...c, [it.id]: t })); }}
+                        onLoadedMetadata={(e) => { const d = e.currentTarget.duration; setDurations((c) => ({ ...c, [it.id]: d })); }}
+                      />
+                      {tool === "annotate" && (
+                        <button
+                          className="anno-pin-btn"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => addAnnotation(it)}
+                        >
+                          + Pin at {fmtTime(times[it.id] ?? 0)}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
+              )}
+              {it.type === "media" && (annosByTarget.get(it.id)?.length ?? 0) > 0 && (
+                <AnnotationOverlay
+                  item={it}
+                  annotations={annosByTarget.get(it.id)!}
+                  numberOf={(id) => annoNumber.get(id) ?? 0}
+                  zoom={cam.zoom}
+                  selectedId={selectedAnnotationId}
+                  currentTime={times[it.id] ?? 0}
+                  duration={durations[it.id] ?? 0}
+                  onSelect={setSelectedAnnotationId}
+                  onChangeText={setAnnotationText}
+                  onDelete={deleteAnnotation}
+                  onSeek={(t) => seek(it.id, t)}
+                />
+              )}
+              {/* rubber-band while a region is being drawn */}
+              {regionDraft && regionDraft.id === it.id && (
+                <div
+                  className="anno-draft"
+                  style={{
+                    left: Math.min(regionDraft.x, regionDraft.x + regionDraft.w) - b.x,
+                    top: Math.min(regionDraft.y, regionDraft.y + regionDraft.h) - b.y,
+                    width: Math.abs(regionDraft.w),
+                    height: Math.abs(regionDraft.h),
+                    borderColor: color,
+                    borderWidth: Math.max(1, 2 / cam.zoom),
+                  }}
+                />
               )}
               {selected && it.type !== "text" && <div className="resize-handle" onPointerDown={(e) => handlePointerDown(e, it)} />}
               {selected && it.type === "text" && <div className="resize-handle" onPointerDown={(e) => handlePointerDown(e, it)} />}

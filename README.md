@@ -12,6 +12,9 @@ organize your thinking across folders of boards. Built as a **Tauri** desktop ap
 - **Infinite canvas** — pan (scroll), zoom (⌘/pinch), dotted grid
 - **Custom tools** — select, pan, freehand pen, rectangle, ellipse, arrow, text, sticky notes
 - **Media** — import images, video, and audio; previewed/played inline
+- **Annotations** — notes that stick to a *place* or *moment*: drag a region on an
+  image or video frame, or pin an audio/video timestamp, with a side panel listing
+  every note on the board (Annotate tool, `C`)
 - **Move & resize**, undo/redo (⌘Z / ⌘⇧Z), zoom-to-fit
 - **Folders on disk** — boards are `.canvas` files under `~/Documents/Research Canvas/`,
   browsable both in the app sidebar and in Finder
@@ -65,7 +68,8 @@ updates itself — verifying the signature against the public key baked into
 
 ## Project layout
 
-- `src/` — React frontend: `Canvas.tsx` (engine), `Toolbar.tsx`, `Sidebar.tsx`, `App.tsx`, `updater.ts`
+- `src/` — React frontend: `Canvas.tsx` (engine), `Annotations.tsx` (pins/highlights
+  drawn on media), `AnnotationPanel.tsx`, `Toolbar.tsx`, `Sidebar.tsx`, `App.tsx`, `updater.ts`
 - `src-tauri/src/lib.rs` — Rust file-system commands + plugin setup
 - `src-tauri/tauri.conf.json` — app config, asset protocol, updater endpoint
 

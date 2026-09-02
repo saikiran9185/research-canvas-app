@@ -14,19 +14,27 @@ where we are and where we're headed. **Help on any of this is welcome** — see
 - Folders on disk; boards are `.canvas` files; auto-save
 - Native desktop app (Tauri) with self-update
 
-## 🔜 Phase 2 — the annotation layer (the signature feature)
+## ✅ Phase 2 — the annotation layer (the signature feature)
 
-Notes that stick to a *place* or *moment* in the media:
+Notes that stick to a *place* or *moment* in the media. Pick the **Annotate**
+tool (`C`), then drag over an image or video, or pin the moment you're hearing
+on an audio clip:
 
-- Highlight a region of an **image or PDF** → attach a note
-- Pin a comment to a **video frame / timecode**
+- Highlight a region of an **image** → attach a note
+- Pin a comment to a **video frame / timecode** (frame pins appear as playback
+  reaches their moment; every note stays reachable on the timecode strip)
 - Pin a note to an **audio timestamp**
-- A side panel listing all annotations on a board
+- A side panel listing all annotations on a board, grouped by media —
+  click one to fly the canvas to it and seek there
+
+Regions are stored relative to the media, so a highlight keeps hugging the same
+part of the picture when the item is resized. Still to do here: the same
+region-note flow for **PDFs**, once PDF support lands in Phase 3.
 
 ## 🔭 Phase 3 — organise & expand
 
 - Tags, search across boards, grouping
-- **PDF** support, **3D model** preview, web-link cards
+- **PDF** support (and region notes on PDF pages), **3D model** preview, web-link cards
 - Better import (drag-and-drop onto the canvas)
 
 ## 🌐 Phase 4 — collaboration (Figma-style)

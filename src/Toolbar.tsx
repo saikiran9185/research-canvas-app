@@ -14,6 +14,9 @@ interface Props {
   canUndo: boolean;
   canRedo: boolean;
   onZoomFit: () => void;
+  annotationCount: number;
+  showAnnotations: boolean;
+  onToggleAnnotations: () => void;
 }
 
 const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
@@ -25,6 +28,7 @@ const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
   { id: "arrow", label: "Arrow", hint: "A", icon: <path d="M4 20L20 4M20 4h-7M20 4v7" fill="none" strokeWidth="1.6" /> },
   { id: "text", label: "Text", hint: "T", icon: <path d="M5 5h14M12 5v14" fill="none" strokeWidth="1.8" /> },
   { id: "note", label: "Sticky note", hint: "N", icon: <path d="M5 4h14v10l-5 6H5z" fill="none" strokeWidth="1.6" /> },
+  { id: "annotate", label: "Annotate media", hint: "C", icon: <g fill="none" strokeWidth="1.6"><path d="M4 5h16v10h-8l-4 4v-4H4z" /><circle cx="12" cy="10" r="1.4" fill="currentColor" stroke="none" /></g> },
 ];
 
 const SWATCHES = ["#111827", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#ffffff"];
@@ -65,6 +69,17 @@ export default function Toolbar(p: Props) {
       <div className="size-control" title="Stroke size">
         <input type="range" min={1} max={24} value={p.size} onChange={(e) => p.setSize(Number(e.target.value))} />
       </div>
+
+      <button
+        className={"tool-btn" + (p.showAnnotations ? " active" : "")}
+        title="Annotations panel"
+        onClick={p.onToggleAnnotations}
+      >
+        <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7">
+          <path d="M4 6h16M4 12h16M4 18h10" />
+        </svg>
+        {p.annotationCount > 0 && <span className="tool-badge">{p.annotationCount}</span>}
+      </button>
 
       <div className="tool-divider" />
 
