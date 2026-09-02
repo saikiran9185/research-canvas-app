@@ -68,3 +68,19 @@ updates itself — verifying the signature against the public key baked into
 - `src/` — React frontend: `Canvas.tsx` (engine), `Toolbar.tsx`, `Sidebar.tsx`, `App.tsx`, `updater.ts`
 - `src-tauri/src/lib.rs` — Rust file-system commands + plugin setup
 - `src-tauri/tauri.conf.json` — app config, asset protocol, updater endpoint
+
+## Contributing & community
+
+This is a community project and we'd love your help — code, design, testing, or ideas.
+
+- Read **[CONTRIBUTING.md](CONTRIBUTING.md)** to get set up (we use a simple DCO sign-off, no CLA)
+- See the **[ROADMAP.md](ROADMAP.md)** for what's being built next
+- How the project is run and stays community-owned: **[GOVERNANCE.md](GOVERNANCE.md)**
+- Be kind: **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)**
+- New here? Look for issues labelled **`good first issue`**, or open a **Discussion**.
+
+## License
+
+**[AGPL-3.0-or-later](LICENSE).** You're free to use, study, change, and share it —
+and any version you distribute or host must stay open source too. This keeps Research
+Canvas free for the community, forever.

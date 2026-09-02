@@ -2,8 +2,10 @@
 name = "researchcanvas"
 version = "0.1.0"
 description = "Research Canvas — an infinite canvas for research"
-authors = ["Saikiran"]
+authors = ["Saikiran and contributors"]
 edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/saikiran9185/research-canvas-app"
 
 [lib]
 name = "researchcanvas_lib"
