@@ -173,3 +173,27 @@ body {
   box-shadow: 0 6px 18px rgba(59,130,246,0.35);
 }
 .cta:hover { filter: brightness(1.05); }
+
+/* ---------------- Shortcuts overlay ---------------- */
+.shortcuts-backdrop {
+  position: fixed; inset: 0; background: rgba(17, 24, 39, 0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.shortcuts-panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  width: 360px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
+  padding: 18px 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+.shortcuts-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.shortcuts-head h2 { margin: 0; font-size: 16px; }
+.shortcuts-section h3 {
+  margin: 14px 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted);
+}
+.shortcuts-section ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.shortcuts-section li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.shortcuts-section kbd {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 2px 7px; font-size: 12px; font-family: inherit; color: var(--text);
+  min-width: 30px; text-align: center;
+}
