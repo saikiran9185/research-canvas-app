@@ -3,6 +3,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
 import Sidebar from "./Sidebar";
+import ShortcutsOverlay from "./ShortcutsOverlay";
 import { storage, pickFolder, pickMediaFiles, mediaKind, type DirEntry } from "./storage";
 import { checkForUpdatesOnLaunch } from "./updater";
 import type { CanvasDoc, Item, Tool } from "./types";
@@ -25,6 +26,7 @@ export default function App() {
   const [color, setColor] = useState("#111827");
   const [size, setSize] = useState(3);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
@@ -206,6 +208,10 @@ export default function App() {
         return;
       }
       if (typing || e.metaKey || e.ctrlKey) return;
+      if (e.key === "?") {
+        setShowShortcuts((s) => !s);
+        return;
+      }
       const map: Record<string, Tool> = { v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse", a: "arrow", t: "text", n: "note" };
       const t = map[e.key.toLowerCase()];
       if (t) setTool(t);
@@ -261,6 +267,8 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }
