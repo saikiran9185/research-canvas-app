@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
 import Sidebar from "./Sidebar";
+import ShortcutsOverlay from "./ShortcutsOverlay";
 import MediaViewer from "./MediaViewer";
 import CommentsPanel from "./CommentsPanel";
 import {
@@ -42,6 +43,7 @@ export default function App() {
   const [size, setSize] = useState(3);
   const [fill, setFill] = useState("none");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   // --- annotation layer --------------------------------------------------
   const [me, setMe] = useState<Identity>(() => getIdentity());
@@ -571,6 +573,7 @@ export default function App() {
       // The viewer and the library own the keyboard while they are open.
       if (libraryOpen && e.key === "Escape" && docRef.current) { setLibraryOpen(false); return; }
       if (viewerItemId || libraryOpen || typing || e.metaKey || e.ctrlKey) return;
+      if (e.key === "?") { setShowShortcuts((v) => !v); return; }
       const map: Record<string, Tool> = {
         v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse",
         a: "arrow", t: "text", n: "note", c: "comment",
@@ -740,6 +743,7 @@ export default function App() {
         </div>
       )}
 
+      {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       <DialogHost />
 
       {toast && <div className="toast">{toast}</div>}
