@@ -50,11 +50,20 @@ piece of a source can be lifted onto the canvas *without becoming a copy of it*.
   exact page or timecode
 - Quotes flow through the notes panel, the Markdown export and the PDF export
 
+## ✅ Scanned PDFs
+
+Real documents are often pictures of documents. A scan has no text layer, so
+there is nothing to select and nothing to quote.
+
+- Local OCR (Tesseract) turns a scanned page into selectable text
+- The recognised words become an ordinary text layer, so quoting, anchoring and
+  extraction need no special case for scans
+- Everything is bundled — no network, no OCR service, no account
+
 ## 🔜 Phase 3c — next up
 
 - **PDF depth first** — continuous scroll through pages, a page thumbnail rail,
-  search within a document, and fallback extraction for multi-column and
-  scanned PDFs (OCR), which is where real-world documents break
+  and search within a document
 - 3D model preview (`.glb` / `.gltf` / `.obj`) with comments pinned in 3D space
 - Audio waveform instead of a bare timeline
 - Drag a selection out of the viewer onto the canvas, rather than a button

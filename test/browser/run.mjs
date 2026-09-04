@@ -15,6 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
+// Which page to run; both live in this folder.
+const PAGE = process.argv[2] ?? "textlayer.html";
+
 const CHROME = process.env.CHROME_PATH
   ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DEBUG = !!process.env.RC_DEBUG;
@@ -67,10 +70,10 @@ process.on("SIGINT", () => { cleanup(); process.exit(130); });
 
 const hardStop = setTimeout(() => {
   if (done) return;
-  console.error("browser test exceeded 150s — treating as a failure");
+  console.error("browser test exceeded 240s — treating as a failure");
   cleanup();
   process.exit(1);
-}, 150_000);
+}, 240_000);
 
 /** One Runtime.evaluate over CDP, with its own timeout. */
 function evaluate(wsUrl, expression, ms = 10000) {
@@ -113,14 +116,14 @@ try {
     // Retina: proves the page is rendered above its CSS size rather than soft.
     "--force-device-scale-factor=2",
     "--window-size=1200,1000",
-    `http://${HOST}:${PORT}/test/browser/textlayer.html`,
+    `http://${HOST}:${PORT}/test/browser/${PAGE}`,
   ], { stdio: ["ignore", "pipe", "pipe"] });
   chrome.stderr.on("data", (d) => log("chrome:", String(d).trim()));
   chrome.on("exit", (code) => log("chrome exited", code));
 
   const target = await waitFor("the test page", async () => {
     const list = await (await fetch(`http://${HOST}:${DEBUG_PORT}/json/list`)).json();
-    return list.find((t) => t.url.includes("textlayer.html"));
+    return list.find((t) => t.url.includes(PAGE));
   });
 
   // The page sets window.__done when every assertion has run.
@@ -128,7 +131,7 @@ try {
     const v = await evaluate(target.webSocketDebuggerUrl,
       "window.__done ? document.getElementById('out').textContent : null");
     return v || null;
-  }, 60000);
+  }, 180_000);
 
   done = true;
   clearTimeout(hardStop);

@@ -25,6 +25,7 @@ dist-ssr
 
 # pdf.js data files, copied out of node_modules by scripts/sync-pdfjs-assets.mjs
 public/pdfjs
+public/tesseract
 
 # Local agent settings
 .claude/

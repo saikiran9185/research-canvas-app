@@ -10,6 +10,7 @@ import type React from "react";
 import type { Annotation, MediaItem } from "./types";
 import { fmtTime } from "./types";
 import { useMediaSrc } from "./media";
+import { recognisePage, buildOcrTextLayer, type OcrPage } from "./ocr";
 import { renderPage, pageCount, pageSize, renderTextLayer } from "./pdf";
 import "./textLayer.css";
 import { loadDoc, type DocContent } from "./doc";
@@ -49,6 +50,8 @@ interface Pending {
   scribbles?: { points: number[]; color: string; size: number }[];
   /** The words the reader actually selected, when there are any. */
   quote?: string;
+  /** True when the words came from OCR rather than the document's own text. */
+  fromOcr?: boolean;
   text: string;
 }
 
@@ -84,6 +87,10 @@ export default function MediaViewer({
   const [avail, setAvail] = useState({ w: 900, h: 700 });
   /** Number of selectable text spans; 0 means a scanned page. */
   const [textSpans, setTextSpans] = useState<number | null>(null);
+  /** OCR results per page, so a page is only ever read once. */
+  const [ocr, setOcr] = useState<Map<number, OcrPage>>(new Map());
+  const [ocrBusy, setOcrBusy] = useState<string | null>(null);
+  const pageImgElRef = useRef<HTMLImageElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -179,6 +186,9 @@ export default function MediaViewer({
   useEffect(() => {
     const el = textLayerRef.current;
     if (item.kind !== "pdf" || !el || !displayW) return;
+    // Once a page has been OCR'd, that layer owns the element — re-running
+    // pdf.js here would wipe the words we just recovered.
+    if (ocr.has(page)) return;
     let alive = true;
     renderTextLayer(item.src, page, displayW, el)
       .then((n) => { if (alive) setTextSpans(n); })
@@ -187,7 +197,7 @@ export default function MediaViewer({
         if (alive) { el.replaceChildren(); setTextSpans(0); }
       });
     return () => { alive = false; };
-  }, [item.kind, item.src, page, displayW]);
+  }, [item.kind, item.src, page, displayW, ocr]);
 
   /**
    * Turn a live text selection into a pending note: the union of the selection
@@ -214,6 +224,7 @@ export default function MediaViewer({
     if (!quote) return;
 
     setPending({
+      fromOcr: ocr.has(page),
       x: (left - stage.left) / stage.width,
       y: (top - stage.top) / stage.height,
       w: (right - left) / stage.width,
@@ -223,6 +234,34 @@ export default function MediaViewer({
       text: "",
     });
   }, [item.kind, page]);
+
+  /**
+   * Read a scanned page with OCR and turn the result into a selectable layer.
+   * Only offered when pdf.js found no text of its own.
+   */
+  const runOcr = useCallback(async () => {
+    const img = pageImgElRef.current;
+    if (!img || !img.complete) return;
+    setOcrBusy("starting…");
+    try {
+      const result = await recognisePage(img, setOcrBusy);
+      setOcr((m) => new Map(m).set(page, result));
+    } catch (e) {
+      setOcrBusy(null);
+      setPdfError(`Could not read this page: ${e}`);
+      return;
+    }
+    setOcrBusy(null);
+  }, [page]);
+
+  // Lay the OCR words over the page whenever we have them and the size changes.
+  useEffect(() => {
+    const el = textLayerRef.current;
+    const img = pageImgElRef.current;
+    const result = ocr.get(page);
+    if (!el || !result || !displayW || !img) return;
+    buildOcrTextLayer(el, result.words, displayW, img.clientHeight || displayW * 1.414);
+  }, [ocr, page, displayW, pageImg]);
 
   // A followed backlink: open straight at the page or moment it points to.
   useEffect(() => {
@@ -539,6 +578,7 @@ export default function MediaViewer({
                               behind it is rendered at device resolution, so the
                               page is sharp and the text layer lines up exactly. */}
                           <img
+                            ref={pageImgElRef}
                             className="stage-media pdf-render"
                             src={pageImg}
                             alt={`page ${page}`}
@@ -622,6 +662,7 @@ export default function MediaViewer({
                     {pending.quote && (
                       <blockquote className="composer-quote" title={pending.quote}>
                         {pending.quote}
+                        {pending.fromOcr && <span className="ocr-tag">read by OCR</span>}
                       </blockquote>
                     )}
                     <textarea
@@ -679,9 +720,20 @@ export default function MediaViewer({
                   <button className="vtool" title="Zoom in" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} disabled={zoom >= 4}>+</button>
                 </div>
 
-                {textSpans === 0 && (
-                  <span className="scan-warn" title="This page has no embedded text — it is probably a scan or an image-only export.">
-                    No text layer — use Highlight
+                {textSpans === 0 && !ocr.has(page) && (
+                  ocrBusy
+                    ? <span className="scan-warn busy">Reading page… {ocrBusy}</span>
+                    : <button
+                        className="vtool ocr-btn"
+                        onClick={runOcr}
+                        title="This page is a scan with no embedded text. Read it with OCR, on this machine, to make it selectable."
+                      >
+                        Scanned page — read it with OCR
+                      </button>
+                )}
+                {ocr.has(page) && (
+                  <span className="scan-warn ok" title={`${ocr.get(page)!.words.length} words recognised`}>
+                    OCR text — select it like any other page
                   </span>
                 )}
                 <div className="page-dots">

@@ -5,18 +5,18 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "sync-pdfjs": "node scripts/sync-pdfjs-assets.mjs",
-    "predev": "npm run sync-pdfjs",
+    "predev": "npm run sync-assets",
     "dev": "vite",
-    "prebuild": "npm run sync-pdfjs",
+    "prebuild": "npm run sync-assets",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "node test/merge.test.mjs",
-    "test:browser": "node test/browser/run.mjs",
+    "test:browser": "node test/browser/run.mjs textlayer.html && node test/browser/run.mjs ocr.html",
     "test:all": "npm test && npm run test:browser",
     "app": "node scripts/install-app.mjs",
-    "app:build": "node scripts/install-app.mjs --no-open"
+    "app:build": "node scripts/install-app.mjs --no-open",
+    "sync-assets": "node scripts/sync-assets.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -28,7 +28,8 @@
     "mammoth": "^1.12.2",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

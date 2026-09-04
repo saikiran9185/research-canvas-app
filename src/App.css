@@ -732,3 +732,33 @@ body {
 }
 /* The scroll box must be able to scroll a zoomed page in both directions. */
 .viewer-stage-scroll { align-items: safe center; justify-content: safe center; }
+
+/* ---- OCR: a scanned page made selectable ---- */
+.ocr-btn { border-color: #b45309; color: #b45309; font-size: 11.5px; white-space: nowrap; }
+.ocr-btn:hover { background: color-mix(in srgb, #f59e0b 14%, transparent); }
+.scan-warn.busy { color: var(--accent); background: var(--accent-soft); }
+.scan-warn.ok { color: #059669; background: color-mix(in srgb, #10b981 14%, transparent); }
+.ocr-tag {
+  display: block; margin-top: 4px; font-style: normal; font-size: 10px;
+  font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #b45309;
+}
+
+/* The OCR layer mimics pdf.js's: transparent words positioned over the page,
+   so the browser's own selection does the work and the rest of the app needs
+   no special case for scans. */
+.textLayer .ocr-line { display: contents; }
+.textLayer .ocr-word {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  line-height: 1;
+  -webkit-user-select: text;
+  user-select: text;
+  /* Stretch each word to its recognised box so the selection highlight lands
+     on the printed word rather than near it. */
+  display: inline-block;
+  overflow: hidden;
+}
+.textLayer .ocr-word::selection { background: color-mix(in srgb, #3b82f6 40%, transparent); }

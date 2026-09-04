@@ -1,0 +1,106 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>OCR of a scanned page</title>
+<style>
+  body { margin: 0; -webkit-user-select: none; user-select: none; font: 13px monospace; }
+  #stage { position: relative; line-height: 0; }
+  #stage .textLayer { position: absolute; inset: 0; -webkit-user-select: text; user-select: text; }
+  #out { white-space: pre; padding: 12px; }
+</style>
+<div id="stage"><canvas id="page"></canvas><div id="tl" class="textLayer"></div></div>
+<div id="out">running…</div>
+<script type="module">
+  // A scanned PDF has no text layer, so the app falls back to OCR and builds a
+  // selectable layer from the recognised word boxes. This exercises that whole
+  // path against a rasterised, speckled page — the shape of a real scan.
+  import { recognisePage, buildOcrTextLayer } from "/src/ocr.ts";
+
+  const results = [];
+  const check = (name, ok, detail = "") => results.push({ name, ok: !!ok, detail });
+  const finish = () => {
+    const failed = results.filter((r) => !r.ok);
+    document.getElementById("out").textContent =
+      results.map((r) => `${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  [${r.detail}]` : ""}`).join("\n")
+      + `\n\n${results.length - failed.length}/${results.length} passed`;
+    document.title = failed.length ? `FAILED ${failed.length}` : "ALL PASS";
+    window.__done = true;
+  };
+
+  const LINES = [
+    { t: "NOTICE", size: 44, x: 300, y: 150 },
+    { t: "Transportation facility for attending", size: 30, x: 120, y: 260 },
+    { t: "the Teachers Day function", size: 30, x: 120, y: 320 },
+    { t: "The University Bus shall be available", size: 26, x: 120, y: 420 },
+  ];
+
+  try {
+    // --- fake a scan: rasterise text, then add speckle so it is not pristine ---
+    const W = 1240, H = 900;
+    const canvas = document.getElementById("page");
+    canvas.width = W; canvas.height = H;
+    canvas.style.width = "620px";
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#000"; ctx.textBaseline = "top";
+    for (const l of LINES) { ctx.font = `${l.size}px Times, serif`; ctx.fillText(l.t, l.x, l.y); }
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let i = 0; i < 6000; i++) {
+      const g = 200 + Math.floor(rnd() * 45);
+      ctx.fillStyle = `rgb(${g},${g},${g})`;
+      ctx.fillRect(Math.floor(rnd() * W), Math.floor(rnd() * H), 1, 1);
+    }
+    document.getElementById("stage").style.width = "620px";
+
+    // --- OCR ---
+    const t0 = performance.now();
+    const page = await recognisePage(canvas);
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+
+    check("OCR returns words", page.words.length > 5, `${page.words.length} words in ${secs}s`);
+
+    const found = page.text.toLowerCase();
+    check("reads the heading", found.includes("notice"), JSON.stringify(page.text.slice(0, 30)));
+    for (const w of ["transportation", "teachers", "university"]) {
+      check(`reads "${w}"`, found.includes(w));
+    }
+
+    // --- boxes must be normalised and plausible, or anchors land nowhere ---
+    const bad = page.words.filter((w) =>
+      !(w.x >= 0 && w.x <= 1 && w.y >= 0 && w.y <= 1 && w.w > 0 && w.w <= 1 && w.h > 0 && w.h <= 1));
+    check("every box is normalised 0..1", bad.length === 0, `${bad.length} bad of ${page.words.length}`);
+
+    const notice = page.words.find((w) => /notice/i.test(w.text));
+    check("the heading is near the top of the page", notice && notice.y < 0.35,
+      notice ? `y=${notice.y.toFixed(3)}` : "not found");
+    check("words carry line numbers", new Set(page.words.map((w) => w.line)).size > 1,
+      `${new Set(page.words.map((w) => w.line)).size} lines`);
+
+    // --- the selectable layer built from those boxes ---
+    const tl = document.getElementById("tl");
+    buildOcrTextLayer(tl, page.words, 620, 620 * (H / W));
+    const spans = [...tl.querySelectorAll(".ocr-word")];
+    check("a span per word", spans.length === page.words.length, `${spans.length} spans`);
+
+    const sized = spans.filter((s) => s.offsetWidth > 0 && s.offsetHeight > 0);
+    check("spans have real size", sized.length === spans.length, `${sized.length}/${spans.length}`);
+
+    const cs = getComputedStyle(sized[0]);
+    check("spans are user-selectable", (cs.userSelect || cs.webkitUserSelect) !== "none",
+      `user-select: ${cs.userSelect || cs.webkitUserSelect}`);
+
+    // Selecting a whole line must give back a sentence, not a bag of words.
+    const line = tl.querySelector(".ocr-line:nth-child(2)") ?? tl.querySelector(".ocr-line");
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    const picked = sel.toString().replace(/\s+/g, " ").trim();
+    check("selecting a line returns its words", picked.split(" ").length > 1, JSON.stringify(picked.slice(0, 44)));
+    check("selection has geometry for an anchor",
+      [...range.getClientRects()].filter((r) => r.width > 0).length > 0);
+  } catch (e) {
+    check("no exception", false, String((e && e.message) || e));
+  }
+  finish();
+</script>
