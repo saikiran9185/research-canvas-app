@@ -178,28 +178,37 @@ body {
 .vector-selection .resize-handle { pointer-events: auto; }
 
 /* ---------------- Toolbar ---------------- */
+/* The rail is centred, but it must never grow past the window: with the fill
+   controls added it became taller than a laptop screen and clipped Select and
+   Pan off the top, leaving no way back to them. Cap it and let it scroll. */
 .toolbar {
   position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
   z-index: 10; background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; padding: 8px; display: flex; flex-direction: column; gap: 4px;
   box-shadow: var(--shadow-md); align-items: center;
+  max-height: calc(100% - 24px);
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none;
 }
+.toolbar::-webkit-scrollbar { width: 0; height: 0; }
+/* Nothing in the rail may shrink, or the buttons squash instead of scrolling. */
+.toolbar > * { flex: none; }
 .tool-btn {
-  width: 40px; height: 40px; border: none; background: transparent; color: var(--text);
+  width: 36px; height: 36px; border: none; background: transparent; color: var(--text);
   border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .tool-btn:hover { background: var(--bg); }
 .tool-btn.active { background: var(--accent); color: #fff; }
 .tool-btn:disabled { opacity: 0.35; cursor: default; }
-.tool-btn svg { width: 22px; height: 22px; }
-.tool-divider { width: 24px; height: 1px; background: var(--line); margin: 4px 0; }
-.color-well { width: 30px; height: 30px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.tool-btn svg { width: 20px; height: 20px; }
+.tool-divider { width: 22px; height: 1px; background: var(--line); margin: 2px 0; }
+.color-well { width: 26px; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 .color-well input { width: 150%; height: 150%; margin: -25%; border: none; padding: 0; cursor: pointer; background: none; }
-.swatches { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; padding: 2px 0; }
-.swatch { width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; padding: 0; }
+.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 2px 0; }
+.swatch { width: 13px; height: 13px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; padding: 0; }
 .swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .size-control { padding: 4px 0; }
-.size-control input { writing-mode: vertical-lr; direction: rtl; width: 20px; height: 60px; accent-color: var(--accent); }
+.size-control input { writing-mode: vertical-lr; direction: rtl; width: 18px; height: 46px; accent-color: var(--accent); }
 
 /* ---------------- Status + welcome ---------------- */
 .statusbar {
@@ -575,7 +584,7 @@ body {
 
 /* ---- stroke / fill controls ---- */
 .paint-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.paint-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.paint-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .color-well.empty { background:
   linear-gradient(45deg, transparent 45%, #ef4444 45%, #ef4444 55%, transparent 55%),
   var(--panel); }

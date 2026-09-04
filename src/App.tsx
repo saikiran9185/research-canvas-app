@@ -10,7 +10,7 @@ import {
   storage, pickFolder, pickMediaFiles, mediaKind, defaultSize,
   saveTextAs, saveBytesAs, pickNewCanvasPath, type DirEntry,
 } from "./storage";
-import { getTheme, applyTheme, type Theme } from "./theme";
+import { getTheme, applyTheme, isDark, isDefaultInk, INK, type Theme } from "./theme";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -38,7 +38,7 @@ export default function App() {
   pathRef.current = canvasPath;
 
   const [tool, setTool] = useState<Tool>("select");
-  const [color, setColor] = useState("#111827");
+  const [color, setColor] = useState<string>(() => (isDark(getTheme()) ? INK.dark : INK.light));
   const [size, setSize] = useState(3);
   const [fill, setFill] = useState("none");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -66,6 +66,21 @@ export default function App() {
   // --- appearance --------------------------------------------------------
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
   useEffect(() => { applyTheme(theme); }, [theme]);
+
+  // Follow the palette with the default ink, but never overrule a colour the
+  // person picked themselves.
+  useEffect(() => {
+    setColor((c) => (isDefaultInk(c) ? (isDark(theme) ? INK.dark : INK.light) : c));
+  }, [theme]);
+
+  // "Auto" also has to react to the OS flipping at sunset.
+  useEffect(() => {
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => setColor((c) => (isDefaultInk(c) ? (mq.matches ? INK.dark : INK.light) : c));
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [theme]);
 
   const say = useCallback((msg: string) => {
     setToast(msg);

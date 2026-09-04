@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import type { Annotation, MediaItem } from "./types";
 import { fmtTime } from "./types";
-import { fileUrl } from "./storage";
+import { useMediaSrc } from "./media";
 import { renderPage, pageCount, pageSize, renderTextLayer } from "./pdf";
 import "./textLayer.css";
 import { loadDoc, type DocContent } from "./doc";
@@ -86,6 +86,9 @@ export default function MediaViewer({
   const [textSpans, setTextSpans] = useState<number | null>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Image / video / audio source, with the asset-protocol fallback.
+  const mediaSrc = useMediaSrc(item.src);
 
   // Measure the space the page has to live in, and keep measuring — the window
   // can be resized and the rail can appear.
@@ -493,13 +496,20 @@ export default function MediaViewer({
               >
                 {/* the medium itself */}
                 {item.kind === "image" && (
-                  <img className="stage-media" src={fileUrl(item.src)} alt={item.name} draggable={false} />
+                  <img
+                    className="stage-media"
+                    src={mediaSrc.src}
+                    onError={mediaSrc.onError}
+                    alt={item.name}
+                    draggable={false}
+                  />
                 )}
                 {item.kind === "video" && (
                   <video
                     className="stage-media"
                     ref={mediaRef as React.RefObject<HTMLVideoElement>}
-                    src={fileUrl(item.src)}
+                    src={mediaSrc.src}
+                    onError={mediaSrc.onError}
                     onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
                     onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
                     onPlay={() => setPlaying(true)}
@@ -511,7 +521,8 @@ export default function MediaViewer({
                     <div className="stage-audio-name">♪ {item.name}</div>
                     <audio
                       ref={mediaRef as React.RefObject<HTMLAudioElement>}
-                      src={fileUrl(item.src)}
+                      src={mediaSrc.src}
+                      onError={mediaSrc.onError}
                       onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
                       onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
                       onPlay={() => setPlaying(true)}

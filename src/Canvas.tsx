@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
-import { fileUrl } from "./storage";
+import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
 
@@ -336,15 +336,10 @@ export default function Canvas({
               )}
               {it.type === "media" && (
                 <div className="media" onDoubleClick={(e) => openMedia(e, it)}>
-                  {it.kind === "image" && <img src={fileUrl(it.src)} draggable={false} alt={it.name} />}
-                  {it.kind === "video" && <video src={fileUrl(it.src)} controls onPointerDown={(e) => e.stopPropagation()} />}
-                  {it.kind === "audio" && (
-                    <div className="audio-card" onPointerDown={(e) => e.stopPropagation()}>
-                      <div className="audio-name">♪ {it.name}</div>
-                      <audio src={fileUrl(it.src)} controls />
-                    </div>
-                  )}
-                  {it.kind === "pdf" && <PdfThumb item={it as MediaItem} />}
+                  {it.kind === "image" && <MediaImage item={it as MediaItem} />}
+                  {it.kind === "video" && <MediaVideo item={it as MediaItem} />}
+                  {it.kind === "audio" && <MediaAudio item={it as MediaItem} />}
+                  {it.kind === "pdf" && <PdfThumb item={it as MediaItem} zoom={cam.zoom} />}
                   {it.kind === "doc" && <DocThumb item={it as MediaItem} />}
                   {it.kind === "model" && (
                     <div className="model-card">
@@ -440,18 +435,33 @@ function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: 
 }
 
 
-/** First-page preview of a PDF card, rendered once and cached by pdf.ts. */
-function PdfThumb({ item }: { item: MediaItem }) {
+/**
+ * First-page preview of a PDF card.
+ *
+ * The raster has to follow the camera: rendered once at a fixed width, the page
+ * turns to mush the moment you zoom in on it — which is exactly when you want
+ * to read it. The target width is quantised to doubling steps so panning and
+ * pinching do not trigger a re-render on every frame.
+ */
+function PdfThumb({ item, zoom }: { item: MediaItem; zoom: number }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
+  const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+  // The width the card actually occupies in device pixels, rounded up to the
+  // next power of two so there are only a handful of distinct render sizes.
+  const wanted = Math.min(4096, Math.max(
+    512,
+    2 ** Math.ceil(Math.log2(Math.max(1, item.w * zoom * dpr))),
+  ));
+
   useEffect(() => {
     let alive = true;
-    renderPage(item.src, item.page ?? 1, 520)
-      .then((r) => { if (alive) setUrl(r.url); })
+    renderPage(item.src, item.page ?? 1, wanted)
+      .then((r) => { if (alive) { setUrl(r.url); setFailed(false); } })
       .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
-  }, [item.src, item.page]);
+  }, [item.src, item.page, wanted]);
 
   if (failed) return <div className="pdf-card pdf-failed">{item.name}</div>;
   if (!url) return <div className="pdf-card">Loading {item.name}…</div>;
@@ -478,6 +488,32 @@ function DocThumb({ item }: { item: MediaItem }) {
     <div className="doc-card">
       <div className="doc-card-name">{item.name}</div>
       <div className="doc-card-body" dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
+
+/** An image card. Recovers by itself if the asset protocol cannot serve it. */
+function MediaImage({ item }: { item: MediaItem }) {
+  const { src, onError, failed } = useMediaSrc(item.src);
+  if (failed) return <div className="pdf-card pdf-failed">Could not load {item.name}</div>;
+  return <img src={src} onError={onError} draggable={false} alt={item.name} />;
+}
+
+function MediaVideo({ item }: { item: MediaItem }) {
+  const { src, onError, failed } = useMediaSrc(item.src);
+  if (failed) return <div className="pdf-card pdf-failed">Could not load {item.name}</div>;
+  return <video src={src} onError={onError} controls onPointerDown={(e) => e.stopPropagation()} />;
+}
+
+function MediaAudio({ item }: { item: MediaItem }) {
+  const { src, onError, failed } = useMediaSrc(item.src);
+  return (
+    <div className="audio-card" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="audio-name">♪ {item.name}</div>
+      {failed
+        ? <div className="pdf-failed">Could not load this file</div>
+        : <audio src={src} onError={onError} controls />}
     </div>
   );
 }

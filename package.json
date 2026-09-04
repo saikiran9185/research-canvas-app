@@ -14,7 +14,9 @@
     "tauri": "tauri",
     "test": "node test/merge.test.mjs",
     "test:browser": "node test/browser/run.mjs",
-    "test:all": "npm test && npm run test:browser"
+    "test:all": "npm test && npm run test:browser",
+    "app": "node scripts/install-app.mjs",
+    "app:build": "node scripts/install-app.mjs --no-open"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -33,7 +33,7 @@ const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
   { id: "comment", label: "Comment", hint: "C", icon: <path d="M4 5h16v11H9l-5 4z" fill="none" strokeWidth="1.6" /> },
 ];
 
-const SWATCHES = ["#111827", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#ffffff"];
+const SWATCHES = ["#111827", "#e7e9ec", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899"];
 // Softer tints for fills, so a filled shape sits behind its own outline
 // instead of shouting over the media underneath it.
 const FILLS = ["#fee2e2", "#fef3c7", "#d1fae5", "#dbeafe", "#ede9fe", "#fce7f3", "#e5e7eb"];

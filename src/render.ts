@@ -7,6 +7,7 @@
 // PNG export can share it.
 
 import type { CanvasDoc, Item, MediaItem, ShapeItem } from "./types";
+import { blobUrlFor } from "./media";
 import { fileUrl } from "./storage";
 import { renderPage } from "./pdf";
 
@@ -60,6 +61,15 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Load a file from disk, falling back to bytes if the asset URL fails. */
+export async function loadImageFromDisk(path: string): Promise<HTMLImageElement> {
+  try {
+    return await loadImage(fileUrl(path));
+  } catch {
+    return loadImage(await blobUrlFor(path));
+  }
+}
+
 /**
  * Grab a single video frame as an image. Used both for the board overview
  * (frame 0 as a poster) and for the evidence page of a timecoded note.
@@ -87,7 +97,19 @@ export function captureVideoFrame(path: string, time: number): Promise<HTMLCanva
 
     v.onloadeddata = () => { v.currentTime = Math.min(target, Math.max(0, (v.duration || target) - 0.01)); };
     v.onseeked = done;
-    v.onerror = () => { if (!settled) { settled = true; reject(new Error(`could not read ${path}`)); } };
+
+    // The same fallback as everywhere else: the asset URL first, then bytes.
+    // One retry only, or a file that genuinely cannot be read would loop.
+    let triedBlob = false;
+    v.onerror = () => {
+      if (settled) return;
+      if (triedBlob) { settled = true; reject(new Error(`could not read ${path}`)); return; }
+      triedBlob = true;
+      blobUrlFor(path)
+        .then((u) => { if (!settled) v.src = u; })
+        .catch(() => { settled = true; reject(new Error(`could not read ${path}`)); });
+    };
+
     // A video that never fires `seeked` must not hang the whole export.
     window.setTimeout(() => { if (!settled) { try { done(); } catch { reject(new Error("timed out")); } } }, 6000);
     v.src = fileUrl(path);
@@ -101,7 +123,7 @@ export async function mediaStill(
   time?: number,
   page?: number,
 ): Promise<CanvasImageSource & { width: number; height: number }> {
-  if (item.kind === "image") return await loadImage(fileUrl(item.src)) as any;
+  if (item.kind === "image") return await loadImageFromDisk(item.src) as any;
   if (item.kind === "video") return await captureVideoFrame(item.src, time ?? 0) as any;
   if (item.kind === "pdf") {
     const r = await renderPage(item.src, page ?? item.page ?? 1, width);

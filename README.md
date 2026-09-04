@@ -87,10 +87,12 @@ Download the `.dmg` from [Releases](../../releases), or build it yourself:
 
 ```bash
 npm install
-npm run tauri build
+npm run app        # builds, installs to /Applications, and launches it
 ```
 
-The app lands in `src-tauri/target/release/bundle/`. Drag it to `/Applications`.
+`npm run app` replaces the manual ritual — no dragging, no Gatekeeper warning.
+Use `npm run app:build` to install without launching, or `npm run tauri build`
+if you just want the artifacts in `src-tauri/target/release/bundle/`.
 
 ## Build a local app
 
