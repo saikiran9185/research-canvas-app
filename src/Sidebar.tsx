@@ -19,6 +19,8 @@ interface Props {
   onRenameMe: () => void;
   theme: Theme;
   onSetTheme: (t: Theme) => void;
+  libraryOpen: boolean;
+  onToggleLibrary: () => void;
 }
 
 export default function Sidebar(p: Props) {
@@ -45,6 +47,11 @@ export default function Sidebar(p: Props) {
       </div>
 
       <div className="sidebar-actions">
+        <button
+          className={"action" + (p.libraryOpen ? " on" : "")}
+          onClick={p.onToggleLibrary}
+          title="All boards as a grid (⌘⇧O)"
+        >▦ Library</button>
         <button className="action" onClick={p.onNewCanvas}>+ Canvas</button>
         <button className="action" onClick={p.onNewFolder}>+ Folder</button>
         {!atRoot && <button className="action subtle" onClick={p.onUp}>↑ Up</button>}

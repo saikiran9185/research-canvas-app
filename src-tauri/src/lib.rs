@@ -67,6 +67,14 @@ fn write_file_text(path: String, contents: String) -> Result<(), String> {
     fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
+/// Read raw bytes. pdf.js (and anything else that needs real bytes) goes
+/// through this rather than the asset:// URL, because a custom URL scheme is
+/// not something every library's network layer knows how to fetch.
+#[tauri::command]
+fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    fs::read(&path).map_err(|e| e.to_string())
+}
+
 /// Write raw bytes — used by the PDF export, which produces binary, not text.
 #[tauri::command]
 fn write_file_bytes(path: String, contents: Vec<u8>) -> Result<(), String> {
@@ -298,6 +306,7 @@ pub fn run() {
             read_file_text,
             write_file_text,
             write_file_bytes,
+            read_file_bytes,
             make_dir,
             import_media,
             path_exists,

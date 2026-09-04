@@ -8,9 +8,11 @@ import MediaViewer from "./MediaViewer";
 import CommentsPanel from "./CommentsPanel";
 import {
   storage, pickFolder, pickMediaFiles, mediaKind, defaultSize,
-  saveTextAs, saveBytesAs, type DirEntry,
+  saveTextAs, saveBytesAs, pickNewCanvasPath, type DirEntry,
 } from "./storage";
 import { getTheme, applyTheme, type Theme } from "./theme";
+import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
+import Library, { invalidateThumb } from "./Library";
 import {
   getIdentity, saveIdentity, loadAnnotations, appendAnnotation,
   annotationsMtime, newAnnotation, toMarkdown, type Identity,
@@ -38,12 +40,15 @@ export default function App() {
   const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState("#111827");
   const [size, setSize] = useState(3);
+  const [fill, setFill] = useState("none");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // --- annotation layer --------------------------------------------------
   const [me, setMe] = useState<Identity>(() => getIdentity());
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [panelOpen, setPanelOpen] = useState(true);
+  // The library is the landing view: on launch you see your boards, not a blank canvas.
+  const [libraryOpen, setLibraryOpen] = useState(true);
   const [viewerItemId, setViewerItemId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const lastMtime = useRef(0);
@@ -72,7 +77,9 @@ export default function App() {
       setWorkspace(ws);
       setCurrentDir(ws);
     })();
-    checkForUpdatesOnLaunch();
+    // Deferred so the dialog host is mounted before the updater can ask anything.
+    const id = window.setTimeout(checkForUpdatesOnLaunch, 1200);
+    return () => window.clearTimeout(id);
   }, []);
 
   const refresh = useCallback(async (dir: string) => {
@@ -94,6 +101,7 @@ export default function App() {
     const path = pathRef.current;
     saveTimer.current = window.setTimeout(() => {
       storage.writeText(path, JSON.stringify(d, null, 2)).catch(() => {});
+      invalidateThumb(path); // the library must not show yesterday's board
     }, 400);
   }, []);
 
@@ -195,18 +203,22 @@ export default function App() {
       setViewerItemId(null);
       setCanvasPath(path);
       setDocState(d);
+      setLibraryOpen(false);
       await reloadAnnotations(path);
     } catch {
-      alert("Could not open canvas (invalid file).");
+      showAlert("Could not open that canvas", "The file exists but is not valid canvas data.");
     }
   }, [reloadAnnotations]);
 
+  /**
+   * New canvas. The OS save panel picks the location, so a board can live
+   * anywhere — including a folder that is already being synced to whoever
+   * you want to work with.
+   */
   async function newCanvas() {
-    const name = window.prompt("Name your canvas:", "Untitled");
-    if (!name) return;
-    const clean = name.replace(/[\/\\:]/g, "-");
-    const path = `${currentDir}/${clean}.canvas`;
-    if (await storage.pathExists(path)) { alert("A canvas with that name already exists."); return; }
+    const path = await pickNewCanvasPath(currentDir);
+    if (!path) return;
+    const clean = (path.split("/").pop() || "Untitled").replace(/\.canvas$/i, "");
     const d = emptyDoc(clean);
     await storage.writeText(path, JSON.stringify(d, null, 2));
     await refresh(currentDir);
@@ -215,17 +227,30 @@ export default function App() {
     setDocState(d);
     setAnnotations([]);
     setSelectedId(null);
+    setLibraryOpen(false);
   }
 
   async function newFolder() {
-    const name = window.prompt("Folder name:", "New Folder");
+    const name = await askText("New folder", {
+      message: `Created inside ${currentDir.split("/").pop()}.`,
+      value: "New Folder",
+      okLabel: "Create",
+    });
     if (!name) return;
     await storage.makeDir(`${currentDir}/${name.replace(/[\/\\:]/g, "-")}`);
     await refresh(currentDir);
+    say(`Created “${name}”`);
   }
 
   async function deleteEntry(e: DirEntry) {
-    if (!window.confirm(`Delete "${e.name}"? This cannot be undone.`)) return;
+    const ok = await askConfirm(`Delete “${e.name}”?`, {
+      message: e.is_dir
+        ? "The folder and everything inside it will be removed. This cannot be undone."
+        : "This cannot be undone.",
+      okLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     await storage.deletePath(e.path);
     if (e.path === canvasPath) { setCanvasPath(null); setDocState(null); setAnnotations([]); }
     await refresh(currentDir);
@@ -323,17 +348,20 @@ export default function App() {
   }, [doc, openViewer, setDoc]);
 
   /** The comment tool: click anywhere on the canvas to leave a note there. */
-  const addBoardComment = useCallback((world: { x: number; y: number }) => {
-    const text = window.prompt("Note on this spot:");
+  const addBoardComment = useCallback(async (world: { x: number; y: number }) => {
+    const text = await askText("Note on this spot", { placeholder: "What's here?", okLabel: "Add note" });
+    setTool("select");
     if (!text) return;
     addAnnotation(newAnnotation(me, {
       itemId: "board", x: 0, y: 0, w: 0, h: 0, worldX: world.x, worldY: world.y,
     }, text));
-    setTool("select");
   }, [addAnnotation, me]);
 
-  function renameMe() {
-    const name = window.prompt("Your name on this board (this is what collaborators see):", me.name);
+  async function renameMe() {
+    const name = await askText("Your name", {
+      message: "This is the label on your notes — it is what collaborators see. Stored only on this machine.",
+      value: me.name,
+    });
     if (!name) return;
     const next = { ...me, name };
     setMe(next);
@@ -407,13 +435,19 @@ export default function App() {
         if (e.shiftKey) redo(); else undo();
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        setLibraryOpen((v) => !v);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (pathRef.current && docRef.current) storage.writeText(pathRef.current, JSON.stringify(docRef.current, null, 2));
         return;
       }
-      // The viewer owns the keyboard while it is open.
-      if (viewerItemId || typing || e.metaKey || e.ctrlKey) return;
+      // The viewer and the library own the keyboard while they are open.
+      if (libraryOpen && e.key === "Escape" && docRef.current) { setLibraryOpen(false); return; }
+      if (viewerItemId || libraryOpen || typing || e.metaKey || e.ctrlKey) return;
       const map: Record<string, Tool> = {
         v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse",
         a: "arrow", t: "text", n: "note", c: "comment",
@@ -423,7 +457,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, viewerItemId]);
+  }, [undo, redo, viewerItemId, libraryOpen]);
 
   const countsByItem = useMemo(() => {
     const m = new Map<string, number>();
@@ -470,6 +504,8 @@ export default function App() {
         onChooseWorkspace={chooseWorkspace}
         onDelete={deleteEntry}
         onRevealInFinder={() => revealItemInDir(currentDir).catch(() => {})}
+        libraryOpen={libraryOpen}
+        onToggleLibrary={() => setLibraryOpen((v) => !v)}
         me={me}
         onRenameMe={renameMe}
         theme={theme}
@@ -482,6 +518,7 @@ export default function App() {
             tool={tool} setTool={setTool}
             color={color} setColor={setColor}
             size={size} setSize={setSize}
+            fill={fill} setFill={setFill}
             onImportMedia={importMedia}
             onUndo={undo} onRedo={redo}
             canUndo={hist.u > 0} canRedo={hist.r > 0}
@@ -492,12 +529,24 @@ export default function App() {
           />
         )}
         <div className="canvas-area" ref={areaRef}>
+          {libraryOpen && (
+            <Library
+              currentDir={currentDir}
+              workspace={workspace}
+              entries={entries}
+              onOpenCanvas={openCanvas}
+              onEnterFolder={setCurrentDir}
+              onNewCanvas={newCanvas}
+              onDelete={deleteEntry}
+              onClose={() => setLibraryOpen(false)}
+            />
+          )}
           {doc ? (
             <>
               <Canvas
                 doc={doc} setDoc={setDoc}
                 tool={tool} setTool={setTool}
-                color={color} size={size}
+                color={color} size={size} fill={fill}
                 selectedId={selectedId} setSelectedId={setSelectedId}
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}
@@ -514,10 +563,14 @@ export default function App() {
             <div className="welcome">
               <h1>Research Canvas</h1>
               <p>
-                An infinite canvas for research. Drop in images, video, audio or PDFs,
-                then pin a note to the exact frame, page or region you mean.
+                An infinite canvas for research. Drop in images, video, audio, PDFs
+                or documents, then pin a note to the exact frame, page or region
+                you mean.
               </p>
-              <button className="cta" onClick={newCanvas}>+ New canvas</button>
+              <div className="welcome-actions">
+                <button className="cta" onClick={newCanvas}>+ New canvas</button>
+                <button className="ghost-btn" onClick={() => setLibraryOpen(true)}>Browse boards</button>
+              </div>
             </div>
           )}
         </div>
@@ -558,6 +611,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <DialogHost />
 
       {toast && <div className="toast">{toast}</div>}
     </div>

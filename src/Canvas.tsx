@@ -4,6 +4,7 @@ import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem } from "./
 import { uid } from "./types";
 import { fileUrl } from "./storage";
 import { renderPage } from "./pdf";
+import { loadDoc } from "./doc";
 
 interface Props {
   doc: CanvasDoc;
@@ -12,6 +13,7 @@ interface Props {
   setTool: (t: Tool) => void;
   color: string;
   size: number;
+  fill: string;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   /** Open (unresolved) note count per item, for the badge on each card. */
@@ -63,7 +65,7 @@ function translate(item: Item, dx: number, dy: number): Item {
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, tool, setTool, color, size, selectedId, setSelectedId,
+  doc, setDoc, tool, setTool, color, size, fill, selectedId, setSelectedId,
   annotationCounts, boardNotes, onOpenMedia, onBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -147,7 +149,7 @@ export default function Canvas({
       case "arrow": {
         const shape = tool === "arrow" ? "arrow" : tool;
         drag.current = { mode: "shape" };
-        setDraft({ id: uid(), type: "shape", shape, x: p.x, y: p.y, w: 0, h: 0, color, size } as ShapeItem);
+        setDraft({ id: uid(), type: "shape", shape, x: p.x, y: p.y, w: 0, h: 0, color, size, fill } as ShapeItem);
         break;
       }
       case "text": {
@@ -320,6 +322,7 @@ export default function Canvas({
                     </div>
                   )}
                   {it.kind === "pdf" && <PdfThumb item={it as MediaItem} />}
+                  {it.kind === "doc" && <DocThumb item={it as MediaItem} />}
                   {it.kind === "model" && (
                     <div className="model-card">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -386,10 +389,13 @@ function isTyping(e: KeyboardEvent): boolean {
 
 function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
   const s = normRect(item);
+  const filled = !!s.fill && s.fill !== "none";
   const common = {
-    stroke: s.color,
+    stroke: s.size > 0 ? s.color : "none",
     strokeWidth: s.size,
-    fill: "transparent",
+    // An unfilled shape still needs a transparent fill so it stays clickable
+    // across its whole body rather than only on the one-pixel outline.
+    fill: filled ? s.fill : "transparent",
     style: { pointerEvents: (selectable ? "visible" : "none") as any, cursor: "move" },
     onPointerDown: onDown,
   };
@@ -427,4 +433,28 @@ function PdfThumb({ item }: { item: MediaItem }) {
   if (failed) return <div className="pdf-card pdf-failed">{item.name}</div>;
   if (!url) return <div className="pdf-card">Loading {item.name}…</div>;
   return <img className="pdf-page" src={url} alt={item.name} draggable={false} />;
+}
+
+
+/** A readable preview of a document card, so the board shows the words. */
+function DocThumb({ item }: { item: MediaItem }) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    loadDoc(item.src)
+      .then((c) => { if (alive) setHtml(c.html); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [item.src]);
+
+  if (failed) return <div className="pdf-card pdf-failed">{item.name}</div>;
+  if (html === null) return <div className="pdf-card">Reading {item.name}…</div>;
+  return (
+    <div className="doc-card">
+      <div className="doc-card-name">{item.name}</div>
+      <div className="doc-card-body" dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
 }

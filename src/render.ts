@@ -243,11 +243,17 @@ function drawItem(ctx: CanvasRenderingContext2D, it: Item) {
     const x = s.w < 0 ? s.x + s.w : s.x;
     const y = s.h < 0 ? s.y + s.h : s.y;
     const w = Math.abs(s.w), h = Math.abs(s.h);
-    if (s.shape === "rect") { roundRect(ctx, x, y, w, h, 4); ctx.stroke(); }
+    const filled = !!s.fill && s.fill !== "none";
+    if (s.shape === "rect") {
+      roundRect(ctx, x, y, w, h, 4);
+      if (filled) { ctx.fillStyle = s.fill!; ctx.fill(); ctx.fillStyle = s.color; }
+      if (s.size > 0) ctx.stroke();
+    }
     else if (s.shape === "ellipse") {
       ctx.beginPath();
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      if (filled) { ctx.fillStyle = s.fill!; ctx.fill(); ctx.fillStyle = s.color; }
+      if (s.size > 0) ctx.stroke();
     } else {
       const x1 = s.x, y1 = s.y, x2 = s.x + s.w, y2 = s.y + s.h;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();

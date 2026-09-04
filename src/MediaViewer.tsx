@@ -11,6 +11,7 @@ import type { Annotation, MediaItem } from "./types";
 import { fmtTime } from "./types";
 import { fileUrl } from "./storage";
 import { renderPage, pageCount } from "./pdf";
+import { loadDoc, type DocContent } from "./doc";
 import { newAnnotation, type Identity } from "./annotations";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
@@ -42,7 +43,8 @@ export default function MediaViewer({
   item, annotations, me, focusId, onClose, onAdd, onUpdate, onDelete,
 }: Props) {
   const isTimed = item.kind === "video" || item.kind === "audio";
-  const [mode, setMode] = useState<Mode>(isTimed || item.kind === "pdf" ? "cursor" : "region");
+  const paged = item.kind === "pdf" || item.kind === "doc";
+  const [mode, setMode] = useState<Mode>(isTimed || paged ? "cursor" : "region");
   const [pending, setPending] = useState<Pending | null>(null);
   const [selected, setSelected] = useState<string | null>(focusId);
   const [editing, setEditing] = useState<string | null>(null);
@@ -62,6 +64,21 @@ export default function MediaViewer({
   const [pages, setPages] = useState(item.pageCount ?? 0);
   const [pageImg, setPageImg] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+
+  // --- word / text documents ---------------------------------------------
+  // The page is rendered at a FIXED width so text never reflows: a highlight
+  // stored as a fraction of the page must land on the same words next time.
+  const [docContent, setDocContent] = useState<DocContent | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item.kind !== "doc") return;
+    let ok = true;
+    loadDoc(item.src)
+      .then((c) => { if (ok) { setDocContent(c); setDocError(null); } })
+      .catch((e) => { if (ok) setDocError(String(e)); });
+    return () => { ok = false; };
+  }, [item.src, item.kind]);
 
   useEffect(() => {
     if (item.kind !== "pdf") return;
@@ -345,6 +362,13 @@ export default function MediaViewer({
                     : pageImg
                       ? <img className="stage-media" src={pageImg} alt={`page ${page}`} draggable={false} />
                       : <div className="stage-fallback">Rendering page {page}…</div>
+                )}
+                {item.kind === "doc" && (
+                  docError
+                    ? <div className="stage-fallback">Could not read this document.<br /><small>{docError}</small></div>
+                    : docContent
+                      ? <div className="doc-page" dangerouslySetInnerHTML={{ __html: docContent.html }} />
+                      : <div className="stage-fallback">Reading {item.name}…</div>
                 )}
                 {item.kind === "model" && (
                   <div className="stage-fallback">

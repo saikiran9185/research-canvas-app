@@ -27,6 +27,8 @@ export const storage = {
     invoke<string>("import_media_hashed", { workspace, src }),
   writeBytes: (path: string, contents: Uint8Array) =>
     invoke<void>("write_file_bytes", { path, contents: Array.from(contents) }),
+  readBytes: async (path: string) =>
+    new Uint8Array(await invoke<number[]>("read_file_bytes", { path })),
 };
 
 // Turn an absolute disk path into a URL the webview can load (asset protocol).
@@ -48,7 +50,7 @@ export async function pickMediaFiles(): Promise<string[]> {
       {
         name: "Media",
         extensions: [
-          ...IMAGE_EXT, ...VIDEO_EXT, ...AUDIO_EXT, ...PDF_EXT, ...MODEL_EXT,
+          ...IMAGE_EXT, ...VIDEO_EXT, ...AUDIO_EXT, ...PDF_EXT, ...DOC_EXT, ...MODEL_EXT,
         ],
       },
     ],
@@ -68,6 +70,9 @@ export const VIDEO_EXT = ["mp4", "mov", "webm", "m4v", "mkv", "avi"];
 export const AUDIO_EXT = ["mp3", "wav", "m4a", "aac", "ogg", "flac", "aiff"];
 export const PDF_EXT = ["pdf"];
 export const MODEL_EXT = ["glb", "gltf", "obj", "stl", "fbx", "usdz", "ply"];
+// Word documents and plain text. .docx converts to HTML in the browser; the
+// older binary .doc format cannot, and is imported as a file card instead.
+export const DOC_EXT = ["docx", "doc", "rtf", "txt", "md", "markdown"];
 
 export function mediaKind(name: string): MediaKind | null {
   const ext = name.toLowerCase().split(".").pop() || "";
@@ -75,6 +80,7 @@ export function mediaKind(name: string): MediaKind | null {
   if (VIDEO_EXT.includes(ext)) return "video";
   if (AUDIO_EXT.includes(ext)) return "audio";
   if (PDF_EXT.includes(ext)) return "pdf";
+  if (DOC_EXT.includes(ext)) return "doc";
   if (MODEL_EXT.includes(ext)) return "model";
   return null;
 }
@@ -85,6 +91,7 @@ export function defaultSize(kind: MediaKind): { w: number; h: number } {
     case "audio": return { w: 340, h: 96 };
     case "video": return { w: 480, h: 300 };
     case "pdf":   return { w: 420, h: 545 };
+    case "doc":   return { w: 420, h: 545 };
     case "model": return { w: 360, h: 300 };
     default:      return { w: 340, h: 260 };
   }
@@ -118,4 +125,19 @@ export async function saveBytesAs(
   if (!path) return null;
   await storage.writeBytes(path, bytes);
   return path;
+}
+
+/**
+ * Where should a new board go? The OS save panel decides, so a board can be
+ * created straight into a synced folder, a USB stick, or anywhere else.
+ * Returns an absolute path ending in `.canvas`, or null if cancelled.
+ */
+export async function pickNewCanvasPath(inDir: string): Promise<string | null> {
+  const chosen = await save({
+    title: "New canvas",
+    defaultPath: `${inDir}/Untitled.canvas`,
+    filters: [{ name: "Research Canvas board", extensions: ["canvas"] }],
+  });
+  if (!chosen) return null;
+  return chosen.toLowerCase().endsWith(".canvas") ? chosen : `${chosen}.canvas`;
 }

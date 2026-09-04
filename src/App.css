@@ -541,3 +541,130 @@ body {
 .cta.wide { width: 100%; }
 .cp-foot { flex-direction: column; align-items: stretch; gap: 8px; }
 .cp-foot-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ---- in-app dialogs (the webview has no window.prompt) ---- */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 100; display: flex;
+  align-items: center; justify-content: center;
+  background: rgba(10, 12, 16, .5); backdrop-filter: blur(2px);
+}
+.dialog {
+  width: min(400px, calc(100vw - 48px));
+  background: var(--panel); border-radius: 14px; padding: 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.4);
+}
+.dialog h3 { margin: 0 0 6px; font-size: 15px; }
+.dialog p { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.dialog input {
+  width: 100%; border: 1px solid var(--line); border-radius: 9px;
+  padding: 9px 11px; font-size: 13.5px; background: var(--bg); color: var(--text);
+  outline: none;
+}
+.dialog input:focus { border-color: var(--accent); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.cta.danger { background: #ef4444; box-shadow: none; }
+.cta:disabled { opacity: .45; cursor: default; }
+
+/* ---- stroke / fill controls ---- */
+.paint-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.paint-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.color-well.empty { background:
+  linear-gradient(45deg, transparent 45%, #ef4444 45%, #ef4444 55%, transparent 55%),
+  var(--panel); }
+.swatch.no-fill {
+  background:
+    linear-gradient(45deg, transparent 44%, #ef4444 44%, #ef4444 56%, transparent 56%),
+    var(--panel);
+}
+
+/* =========================================================================
+   Library — every board in a folder, as a grid
+   ========================================================================= */
+.library {
+  position: absolute; inset: 0; z-index: 20; background: var(--bg);
+  display: flex; flex-direction: column;
+}
+.lib-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 20px 24px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.lib-head h2 { margin: 0; font-size: 19px; letter-spacing: -0.2px; }
+.lib-sub { font-size: 12px; color: var(--muted); }
+.lib-head-actions { display: flex; align-items: center; gap: 8px; }
+.lib-search { width: 200px; }
+
+.lib-grid {
+  flex: 1; overflow-y: auto; padding: 20px 24px 40px;
+  display: grid; gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  align-content: start;
+}
+.lib-card { position: relative; border: none; background: none; padding: 0; text-align: left; cursor: pointer; }
+.lib-thumb {
+  width: 100%; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: border-color .12s, transform .12s;
+}
+.lib-card:hover .lib-thumb { border-color: var(--accent); transform: translateY(-2px); }
+.lib-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lib-thumb-empty { font-size: 12px; color: var(--muted); }
+.lib-thumb.folder { color: var(--muted); background: var(--bg); }
+.lib-thumb.folder svg { width: 54px; height: 54px; }
+.lib-name {
+  margin-top: 8px; font-size: 12.5px; font-weight: 600;
+  display: flex; align-items: baseline; gap: 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lib-count { font-size: 11px; font-weight: 400; color: var(--muted); flex: none; }
+.lib-del {
+  position: absolute; top: 6px; right: 6px; opacity: 0;
+  width: 24px; height: 24px; border-radius: 12px; border: none; cursor: pointer;
+  background: rgba(17,24,39,.75); color: #fff; font-size: 15px; line-height: 1;
+}
+.lib-card:hover .lib-del { opacity: 1; }
+.lib-del:hover { background: #ef4444; }
+.lib-empty { grid-column: 1 / -1; padding: 60px 0; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* ---- documents ---- */
+.kind-doc { background: #eef2ff; color: #4f46e5; }
+.doc-page {
+  /* Fixed width: text must not reflow, or a stored highlight would drift. */
+  width: 820px; max-width: 100%; background: #fff; color: #1f2937;
+  padding: 64px 72px; line-height: 1.65; font-size: 15px; text-align: left;
+  box-shadow: 0 6px 30px rgba(0,0,0,.3);
+}
+.doc-page h1, .doc-page h2, .doc-page h3 { line-height: 1.3; margin: 1.4em 0 .5em; }
+.doc-page h1 { font-size: 27px; }
+.doc-page h2 { font-size: 21px; }
+.doc-page h3 { font-size: 17px; }
+.doc-page p { margin: 0 0 1em; }
+.doc-page ul, .doc-page ol { margin: 0 0 1em 1.3em; }
+.doc-page img { max-width: 100%; height: auto; }
+.doc-page table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+.doc-page td, .doc-page th { border: 1px solid #e5e7eb; padding: 6px 9px; }
+.doc-page pre { white-space: pre-wrap; word-break: break-word; font-size: 13px; margin: 0; }
+.doc-page code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; font-size: .9em; }
+.doc-link { color: #2563eb; text-decoration: underline; }
+
+.doc-card {
+  width: 100%; height: 100%; background: #fff; color: #1f2937;
+  display: flex; flex-direction: column; overflow: hidden; text-align: left;
+}
+.doc-card-name {
+  font-size: 11px; font-weight: 700; padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb; color: #4f46e5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none;
+}
+.doc-card-body {
+  flex: 1; overflow: hidden; padding: 12px 14px; font-size: 9px; line-height: 1.5;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+}
+.doc-card-body h1 { font-size: 13px; margin: 0 0 4px; }
+.doc-card-body h2 { font-size: 11px; margin: 6px 0 3px; }
+.doc-card-body p, .doc-card-body li { margin: 0 0 4px; }
+.doc-card-body pre { white-space: pre-wrap; font-size: 8px; }
+
+.action.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.welcome-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }

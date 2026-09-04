@@ -8,6 +8,8 @@ interface Props {
   setColor: (c: string) => void;
   size: number;
   setSize: (n: number) => void;
+  fill: string;
+  setFill: (c: string) => void;
   onImportMedia: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -32,6 +34,9 @@ const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
 ];
 
 const SWATCHES = ["#111827", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#ffffff"];
+// Softer tints for fills, so a filled shape sits behind its own outline
+// instead of shouting over the media underneath it.
+const FILLS = ["#fee2e2", "#fef3c7", "#d1fae5", "#dbeafe", "#ede9fe", "#fce7f3", "#e5e7eb"];
 
 export default function Toolbar(p: Props) {
   return (
@@ -57,17 +62,45 @@ export default function Toolbar(p: Props) {
 
       <div className="tool-divider" />
 
-      <div className="color-well" title="Color">
-        <input type="color" value={p.color} onChange={(e) => p.setColor(e.target.value)} />
+      {/* Stroke: the colour of every line, outline, arrow and letter. */}
+      <div className="paint-row">
+        <div className="color-well" title="Stroke colour">
+          <input type="color" value={p.color} onChange={(e) => p.setColor(e.target.value)} />
+        </div>
+        <span className="paint-label">line</span>
       </div>
       <div className="swatches">
         {SWATCHES.map((c) => (
-          <button key={c} className={"swatch" + (p.color.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setColor(c)} />
+          <button key={c} className={"swatch" + (p.color.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setColor(c)} title={c} />
         ))}
       </div>
 
-      <div className="size-control" title="Stroke size">
-        <input type="range" min={1} max={24} value={p.size} onChange={(e) => p.setSize(Number(e.target.value))} />
+      <div className="size-control" title="Stroke width">
+        <input type="range" min={0} max={24} value={p.size} onChange={(e) => p.setSize(Number(e.target.value))} />
+      </div>
+
+      <div className="tool-divider" />
+
+      {/* Fill: rectangles and ellipses only. "none" leaves them see-through. */}
+      <div className="paint-row">
+        <div className={"color-well" + (p.fill === "none" ? " empty" : "")} title="Fill colour">
+          <input
+            type="color"
+            value={p.fill === "none" ? "#ffffff" : p.fill}
+            onChange={(e) => p.setFill(e.target.value)}
+          />
+        </div>
+        <span className="paint-label">fill</span>
+      </div>
+      <div className="swatches">
+        <button
+          className={"swatch no-fill" + (p.fill === "none" ? " active" : "")}
+          onClick={() => p.setFill("none")}
+          title="No fill"
+        />
+        {FILLS.map((c) => (
+          <button key={c} className={"swatch" + (p.fill.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setFill(c)} title={c} />
+        ))}
       </div>
 
       <div className="tool-divider" />

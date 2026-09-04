@@ -43,8 +43,12 @@ export interface ShapeItem extends Base {
   y: number;
   w: number;
   h: number;
+  /** Stroke colour. */
   color: string;
+  /** Stroke width; 0 draws no outline. */
   size: number;
+  /** Fill colour, or "none" / undefined for an outline-only shape. */
+  fill?: string;
 }
 
 export interface TextItem extends Base {
@@ -68,7 +72,7 @@ export interface NoteItem extends Base {
 }
 
 /** Everything Research Canvas can put on the board. */
-export type MediaKind = "image" | "video" | "audio" | "pdf" | "model";
+export type MediaKind = "image" | "video" | "audio" | "pdf" | "doc" | "model";
 
 export interface MediaItem extends Base {
   type: "media";

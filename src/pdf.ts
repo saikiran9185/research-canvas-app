@@ -6,7 +6,7 @@
 
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { fileUrl } from "./storage";
+import { storage } from "./storage";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -23,11 +23,23 @@ const PDF_ASSETS = {
 
 const cache = new Map<string, Promise<PdfDoc>>();
 
-/** Open a PDF from an absolute disk path (cached — the same file opens once). */
+/**
+ * Open a PDF from an absolute disk path (cached — the same file opens once).
+ *
+ * The bytes are read through the Rust backend rather than handed to pdf.js as
+ * an `asset://` URL: pdf.js fetches a URL with its own network layer, which
+ * does not understand Tauri's custom scheme, so the URL form fails silently on
+ * a packaged app. Reading the file ourselves works everywhere.
+ */
 export function openPdf(path: string): Promise<PdfDoc> {
   let doc = cache.get(path);
   if (!doc) {
-    doc = pdfjs.getDocument({ url: fileUrl(path), ...PDF_ASSETS }).promise;
+    doc = (async () => {
+      const bytes = await storage.readBytes(path);
+      return pdfjs.getDocument({ data: bytes, ...PDF_ASSETS }).promise;
+    })();
+    // A failed open must not poison the cache — the next attempt should retry.
+    doc.catch(() => cache.delete(path));
     cache.set(path, doc);
   }
   return doc;
