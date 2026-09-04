@@ -93,3 +93,36 @@ export async function pageText(path: string, pageNumber: number): Promise<string
   const content = await page.getTextContent();
   return content.items.map((i: any) => ("str" in i ? i.str : "")).join(" ");
 }
+
+/**
+ * Render pdf.js's invisible text layer into `container`, aligned to a page
+ * already displayed at `displayWidth` CSS pixels.
+ *
+ * This is what makes a PDF selectable rather than a picture of a page: pdf.js
+ * lays transparent, correctly-positioned spans over the rendered image, so the
+ * browser's own selection machinery does the work and a highlight can carry the
+ * real words rather than a screenshot of them.
+ */
+export async function renderTextLayer(
+  path: string,
+  pageNumber: number,
+  displayWidth: number,
+  container: HTMLDivElement,
+): Promise<void> {
+  const doc = await openPdf(path);
+  const page = await doc.getPage(Math.min(Math.max(1, pageNumber), doc.numPages));
+
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: displayWidth / base.width });
+
+  container.replaceChildren();
+  // pdf.js positions every span from these, so they must be set before render.
+  pdfjs.setLayerDimensions(container, viewport);
+
+  const layer = new pdfjs.TextLayer({
+    textContentSource: page.streamTextContent(),
+    container,
+    viewport,
+  });
+  await layer.render();
+}

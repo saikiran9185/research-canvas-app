@@ -44,6 +44,14 @@ Open any file on the board (double-click, or *Annotate*) to get a focus view:
 - **All in one place** — a board-wide notes panel, searchable, filterable by
   author, and grouped by the file each note belongs to.
 
+### Source-linked excerpts
+Select a passage in a PDF and hit **→ Canvas**. It lands on the board as a card
+— with the cropped image — carrying a **live link back to the page it came
+from**. Click the link and the viewer reopens at that exact page or timecode.
+
+The card is a *view* of a place in a file, not a screenshot of it. That is the
+difference between a research canvas and a folder of screenshots.
+
 ### Sharing
 - **Export the whole board as a PDF** — the canvas, then a page per annotated
   moment with the highlight drawn onto the frame, then an index of every note.

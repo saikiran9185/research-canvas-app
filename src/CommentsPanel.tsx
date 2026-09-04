@@ -121,7 +121,10 @@ export default function CommentsPanel({
                     {a.anchor.time !== undefined && <span className="tc">{fmtTime(a.anchor.time)}</span>}
                     <span className="cp-when">{when(a.createdAt)}</span>
                   </div>
-                  <div className="cp-item-text">{a.text || <i>(scribble only)</i>}</div>
+                  {a.quote && <blockquote className="cp-quote">{a.quote}</blockquote>}
+                  <div className="cp-item-text">
+                    {a.text || (a.quote ? <i>(highlight)</i> : <i>(scribble only)</i>)}
+                  </div>
                   {a.authorId === me.id && (
                     <div className="rail-item-actions">
                       <button onClick={(e) => { e.stopPropagation(); onUpdate({ ...a, resolved: !a.resolved, updatedAt: Date.now() }); }}>
@@ -157,6 +160,7 @@ export default function CommentsPanel({
 function labelOf(item: Item | undefined): string {
   if (!item) return "Deleted file";
   if (item.type === "media") return item.name;
+  if (item.type === "excerpt") return `Excerpt from ${item.sourceName}`;
   if (item.type === "note" || item.type === "text") return item.text.slice(0, 40) || "Untitled";
   return "On the canvas";
 }

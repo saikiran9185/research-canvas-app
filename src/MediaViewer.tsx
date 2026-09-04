@@ -10,9 +10,11 @@ import type React from "react";
 import type { Annotation, MediaItem } from "./types";
 import { fmtTime } from "./types";
 import { fileUrl } from "./storage";
-import { renderPage, pageCount } from "./pdf";
+import { renderPage, pageCount, renderTextLayer } from "./pdf";
+import "./textLayer.css";
 import { loadDoc, type DocContent } from "./doc";
 import { newAnnotation, type Identity } from "./annotations";
+import { cropRegion } from "./render";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 type Mode = "cursor" | "region" | "pin" | "draw";
@@ -25,10 +27,19 @@ interface Props {
   annotations: Annotation[];
   me: Identity;
   focusId: string | null;
+  /** When set, open showing this page / timecode (a followed backlink). */
+  openAt?: Annotation["anchor"] | null;
   onClose: () => void;
   onAdd: (a: Annotation) => void;
   onUpdate: (a: Annotation) => void;
   onDelete: (a: Annotation) => void;
+  /** Lift a piece of this file onto the canvas, keeping a link back here. */
+  onExtract: (e: {
+    anchor: Annotation["anchor"];
+    text: string;
+    image?: string;
+    sourceName: string;
+  }) => void;
 }
 
 interface Pending {
@@ -36,11 +47,13 @@ interface Pending {
   time?: number;
   page?: number;
   scribbles?: { points: number[]; color: string; size: number }[];
+  /** The words the reader actually selected, when there are any. */
+  quote?: string;
   text: string;
 }
 
 export default function MediaViewer({
-  item, annotations, me, focusId, onClose, onAdd, onUpdate, onDelete,
+  item, annotations, me, focusId, openAt, onClose, onAdd, onUpdate, onDelete, onExtract,
 }: Props) {
   const isTimed = item.kind === "video" || item.kind === "audio";
   const paged = item.kind === "pdf" || item.kind === "doc";
@@ -64,6 +77,8 @@ export default function MediaViewer({
   const [pages, setPages] = useState(item.pageCount ?? 0);
   const [pageImg, setPageImg] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const pageImgRef = useRef<HTMLImageElement>(null);
 
   // --- word / text documents ---------------------------------------------
   // The page is rendered at a FIXED width so text never reflows: a highlight
@@ -97,6 +112,74 @@ export default function MediaViewer({
     })();
     return () => { alive = false; };
   }, [item.src, item.kind, page]);
+
+  /**
+   * Lay the selectable text over the rendered page. It has to be re-run
+   * whenever the displayed size changes, because pdf.js positions the spans in
+   * CSS pixels against a specific width.
+   */
+  const layoutTextLayer = useCallback(() => {
+    const el = textLayerRef.current;
+    const img = pageImgRef.current;
+    if (item.kind !== "pdf" || !el || !img || !img.clientWidth) return;
+    renderTextLayer(item.src, page, img.clientWidth, el).catch(() => {
+      // No text layer (a scanned PDF, say) — region highlighting still works.
+      el.replaceChildren();
+    });
+  }, [item.kind, item.src, page]);
+
+  useEffect(() => {
+    if (item.kind !== "pdf" || !pageImg) return;
+    layoutTextLayer();
+    const ro = new ResizeObserver(layoutTextLayer);
+    if (pageImgRef.current) ro.observe(pageImgRef.current);
+    return () => ro.disconnect();
+  }, [pageImg, layoutTextLayer, item.kind]);
+
+  /**
+   * Turn a live text selection into a pending note: the union of the selection
+   * rectangles becomes the anchor, and the selected words become the quote.
+   */
+  const captureSelection = useCallback(() => {
+    if (item.kind !== "pdf") return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const layer = textLayerRef.current;
+    if (!layer || !sel.anchorNode || !layer.contains(sel.anchorNode)) return;
+
+    const stage = stageRef.current!.getBoundingClientRect();
+    const rects = [...sel.getRangeAt(0).getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+    if (!rects.length) return;
+
+    const left = Math.min(...rects.map((r) => r.left));
+    const right = Math.max(...rects.map((r) => r.right));
+    const top = Math.min(...rects.map((r) => r.top));
+    const bottom = Math.max(...rects.map((r) => r.bottom));
+
+    const quote = sel.toString().replace(/\s+/g, " ").trim();
+    sel.removeAllRanges();
+    if (!quote) return;
+
+    setPending({
+      x: (left - stage.left) / stage.width,
+      y: (top - stage.top) / stage.height,
+      w: (right - left) / stage.width,
+      h: (bottom - top) / stage.height,
+      page,
+      quote,
+      text: "",
+    });
+  }, [item.kind, page]);
+
+  // A followed backlink: open straight at the page or moment it points to.
+  useEffect(() => {
+    if (!openAt) return;
+    if (openAt.page !== undefined) setPage(openAt.page);
+    if (openAt.time !== undefined && mediaRef.current) {
+      mediaRef.current.currentTime = openAt.time;
+      setTime(openAt.time);
+    }
+  }, [openAt]);
 
   // Jump to whatever the clicked-through annotation is anchored to.
   useEffect(() => {
@@ -199,8 +282,37 @@ export default function MediaViewer({
         ...(pending.page !== undefined ? { page: pending.page } : {}),
       },
       text,
-      pending.scribbles?.length ? { scribbles: pending.scribbles } : {},
+      {
+        ...(pending.scribbles?.length ? { scribbles: pending.scribbles } : {}),
+        ...(pending.quote ? { quote: pending.quote } : {}),
+      },
     ));
+    setPending(null);
+    setMode("cursor");
+  }
+
+  /**
+   * Lift something out of this file and onto the canvas. The excerpt keeps the
+   * anchor, so the card on the board is a view of *this* place in the file
+   * rather than a detached copy of it.
+   */
+  const extract = useCallback(async (
+    anchor: Annotation["anchor"],
+    text: string,
+  ) => {
+    const image = await cropRegion(item, anchor, { time: anchor.time, page: anchor.page });
+    onExtract({ anchor, text, image, sourceName: item.name });
+  }, [item, onExtract]);
+
+  async function extractPending() {
+    if (!pending) return;
+    const anchor = {
+      itemId: item.id,
+      x: pending.x, y: pending.y, w: pending.w, h: pending.h,
+      ...(pending.time !== undefined ? { time: pending.time } : {}),
+      ...(pending.page !== undefined ? { page: pending.page } : {}),
+    };
+    await extract(anchor, pending.quote || pending.text.trim() || item.name);
     setPending(null);
     setMode("cursor");
   }
@@ -305,13 +417,13 @@ export default function MediaViewer({
                   className={"vtool" + (mode === m ? " active" : "")}
                   onClick={() => { setMode(m); if (m !== "draw") setPending(null); }}
                   title={{
-                    cursor: "Look around",
+                    cursor: item.kind === "pdf" ? "Select text to quote it in a note" : "Look around",
                     region: "Highlight a region, then write a note",
                     pin: "Drop a pin exactly here",
                     draw: "Scribble on this frame",
                   }[m]}
                 >
-                  {{ cursor: "Look", region: "Highlight", pin: "Pin", draw: "Scribble" }[m]}
+                  {{ cursor: item.kind === "pdf" ? "Select text" : "Look", region: "Highlight", pin: "Pin", draw: "Scribble" }[m]}
                 </button>
               ))}
               <div className="vtool-spacer" />
@@ -360,7 +472,26 @@ export default function MediaViewer({
                   pdfError
                     ? <div className="stage-fallback">Could not read this PDF.<br /><small>{pdfError}</small></div>
                     : pageImg
-                      ? <img className="stage-media" src={pageImg} alt={`page ${page}`} draggable={false} />
+                      ? <>
+                          <img
+                            ref={pageImgRef}
+                            className="stage-media"
+                            src={pageImg}
+                            alt={`page ${page}`}
+                            draggable={false}
+                            onLoad={layoutTextLayer}
+                          />
+                          {/* Invisible, selectable text sitting exactly over the
+                              rendered page. Only live in "Look" mode, so the
+                              highlight and scribble tools can still drag. */}
+                          <div
+                            ref={textLayerRef}
+                            className="textLayer"
+                            style={{ pointerEvents: mode === "cursor" ? "auto" : "none" }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onMouseUp={captureSelection}
+                          />
+                        </>
                       : <div className="stage-fallback">Rendering page {page}…</div>
                 )}
                 {item.kind === "doc" && (
@@ -424,6 +555,11 @@ export default function MediaViewer({
                       {pending.time !== undefined && <span className="tc">{fmtTime(pending.time)}</span>}
                       {pending.page !== undefined && <span className="tc">p.{pending.page}</span>}
                     </div>
+                    {pending.quote && (
+                      <blockquote className="composer-quote" title={pending.quote}>
+                        {pending.quote}
+                      </blockquote>
+                    )}
                     <textarea
                       autoFocus
                       placeholder="What do you want to say about this?"
@@ -435,6 +571,11 @@ export default function MediaViewer({
                     />
                     <div className="composer-actions">
                       <button className="ghost-btn" onClick={() => setPending(null)}>Cancel</button>
+                      <button
+                        className="ghost-btn"
+                        title="Put this on the canvas with a link back to here"
+                        onClick={extractPending}
+                      >→ Canvas</button>
                       <button className="cta small" onClick={commitPending}>Comment ⌘↵</button>
                     </div>
                   </div>
@@ -528,11 +669,20 @@ export default function MediaViewer({
                       </div>
                     </>
                   ) : (
-                    <div className="rail-item-text">{a.text || <i>(scribble only)</i>}</div>
+                    <>
+                      {a.quote && <blockquote className="rail-quote">{a.quote}</blockquote>}
+                      <div className="rail-item-text">
+                        {a.text || (a.quote ? <i>(highlight)</i> : <i>(scribble only)</i>)}
+                      </div>
+                    </>
                   )}
                   {a.authorId === me.id && editing !== a.id && (
                     <div className="rail-item-actions">
                       <button onClick={(e) => { e.stopPropagation(); setEditing(a.id); setEditText(a.text); }}>Edit</button>
+                      <button
+                        title="Put this on the canvas with a link back to here"
+                        onClick={(e) => { e.stopPropagation(); extract(a.anchor, a.quote || a.text); }}
+                      >→ Canvas</button>
                       <button onClick={(e) => { e.stopPropagation(); onUpdate({ ...a, resolved: !a.resolved, updatedAt: Date.now() }); }}>
                         {a.resolved ? "Reopen" : "Resolve"}
                       </button>

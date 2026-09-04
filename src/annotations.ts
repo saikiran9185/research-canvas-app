@@ -208,6 +208,7 @@ export function toMarkdown(
     for (const a of list) {
       const where = labelFor(a).split(" · ").slice(1).join(" · ");
       lines.push(`- **${a.author}**${where ? ` (${where})` : ""}${a.resolved ? " ✓" : ""}`);
+      if (a.quote) lines.push(`  > ${a.quote}`, "");
       for (const l of (a.text || "_no text_").split("\n")) lines.push(`  ${l}`);
       lines.push("");
     }

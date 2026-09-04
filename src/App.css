@@ -668,3 +668,39 @@ body {
 
 .action.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .welcome-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+
+/* ---- quoted source text ---- */
+.composer-quote, .rail-quote, .cp-quote {
+  margin: 0 0 7px; padding: 5px 9px; font-size: 11.5px; line-height: 1.45;
+  color: var(--muted); background: var(--bg); border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0; font-style: italic;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+/* The text layer must be selectable even though the app disables selection globally. */
+.viewer-stage .textLayer { -webkit-user-select: text; user-select: text; }
+
+/* ---- excerpts: a piece of a source, living on the canvas ---- */
+.excerpt {
+  width: 100%; height: 100%; background: var(--panel);
+  border: 2px solid; border-radius: 10px; overflow: hidden;
+  display: flex; flex-direction: column; box-shadow: var(--shadow-sm);
+}
+.excerpt-image {
+  width: 100%; flex: 1; min-height: 0; object-fit: cover;
+  background: #fff; display: block; border-bottom: 1px solid var(--line);
+}
+.excerpt-text {
+  padding: 10px 12px; font-size: 12.5px; line-height: 1.45; font-style: italic;
+  color: var(--text); overflow: hidden; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
+}
+.excerpt:has(.excerpt-image) .excerpt-text { -webkit-line-clamp: 3; flex: none; }
+.excerpt-source {
+  display: flex; align-items: center; gap: 6px; margin-top: auto;
+  border: none; border-top: 1px solid var(--line); background: transparent;
+  padding: 7px 12px; font-size: 11px; font-weight: 700; cursor: pointer;
+  text-align: left; width: 100%; flex: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.excerpt-source:hover { background: var(--accent-soft); }

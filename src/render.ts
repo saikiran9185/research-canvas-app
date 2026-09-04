@@ -23,6 +23,7 @@ export function itemBox(it: Item): Box {
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
   if (it.type === "text") return { x: it.x, y: it.y, w: it.w, h: estimateTextHeight(it.text, it.fontSize, it.w) };
+  if (it.type === "excerpt") return { x: it.x, y: it.y, w: it.w, h: it.h };
   if (it.type === "shape") {
     const x = it.w < 0 ? it.x + it.w : it.x;
     const y = it.h < 0 ? it.y + it.h : it.y;
@@ -281,6 +282,28 @@ function drawItem(ctx: CanvasRenderingContext2D, it: Item) {
     return;
   }
 
+  if (it.type === "excerpt") {
+    ctx.fillStyle = "#ffffff";
+    roundRect(ctx, it.x, it.y, it.w, it.h, 10);
+    ctx.fill();
+    ctx.strokeStyle = it.color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#374151";
+    ctx.font = "italic 13px -apple-system, Helvetica, sans-serif";
+    ctx.textBaseline = "top";
+    let y = it.y + 14;
+    for (const line of wrap(ctx, it.text, it.w - 28)) {
+      if (y > it.y + it.h - 34) break;
+      ctx.fillText(line, it.x + 14, y);
+      y += 18;
+    }
+    ctx.fillStyle = it.color;
+    ctx.font = "600 11px -apple-system, Helvetica, sans-serif";
+    ctx.fillText(`↩ ${it.sourceName}`, it.x + 14, it.y + it.h - 22);
+    return;
+  }
+
   if (it.type === "note") {
     ctx.fillStyle = it.color;
     roundRect(ctx, it.x, it.y, it.w, it.h, 8);
@@ -343,5 +366,38 @@ export function drawAnnotationOverlay(
     ctx.fillText(label, cx, cy);
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
+  }
+}
+
+
+/**
+ * Crop a normalised region out of a medium and return it as a data URL.
+ * Used when an excerpt is lifted onto the canvas, so the card shows the actual
+ * paragraph or frame rather than a description of it.
+ */
+export async function cropRegion(
+  item: MediaItem,
+  region: { x: number; y: number; w: number; h: number },
+  opts: { time?: number; page?: number; maxWidth?: number } = {},
+): Promise<string | undefined> {
+  if (region.w < 0.004 || region.h < 0.004) return undefined;
+  try {
+    const still = await mediaStill(item, opts.maxWidth ?? 1600, opts.time, opts.page);
+    const sx = Math.round(region.x * still.width);
+    const sy = Math.round(region.y * still.height);
+    const sw = Math.max(1, Math.round(region.w * still.width));
+    const sh = Math.max(1, Math.round(region.h * still.height));
+
+    const c = document.createElement("canvas");
+    c.width = sw;
+    c.height = sh;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, sw, sh);
+    ctx.drawImage(still, sx, sy, sw, sh, 0, 0, sw, sh);
+    return c.toDataURL("image/jpeg", 0.85);
+  } catch {
+    // A crop is a nicety; the excerpt is still useful as text plus a backlink.
+    return undefined;
   }
 }

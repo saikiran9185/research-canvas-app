@@ -226,8 +226,13 @@ function writeNote(
 ): number {
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(10);
-  const body = pdf.splitTextToSize(a.text || "(scribble only)", width - 26) as string[];
-  const needed = 16 + body.length * 13 + 8;
+  const body = pdf.splitTextToSize(a.text || (a.quote ? "" : "(scribble only)"), width - 26) as string[];
+  pdf.setFont("helvetica", "italic");
+  pdf.setFontSize(9);
+  const quote = a.quote
+    ? (pdf.splitTextToSize(`“${a.quote}”`, width - 32) as string[]).slice(0, 8)
+    : [];
+  const needed = 16 + (quote.length * 11) + body.filter(Boolean).length * 13 + 8;
   if (y + needed > bottom) { pdf.addPage([A4.w, A4.h], "portrait"); y = 48; }
 
   const rgb = hexToRgb(a.color);
@@ -248,11 +253,23 @@ function writeNote(
   ].filter(Boolean).join("  ·  ");
   pdf.text(meta, x + 20, y + 6);
 
-  pdf.setFont("helvetica", "normal");
-  pdf.setTextColor(70);
-  pdf.text(body, x + 20, y + 20);
+  let ty = y + 20;
+  if (quote.length) {
+    pdf.setFont("helvetica", "italic");
+    pdf.setFontSize(9);
+    pdf.setTextColor(120);
+    pdf.text(quote, x + 26, ty);
+    ty += quote.length * 11 + 4;
+  }
+  if (body.filter(Boolean).length) {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.setTextColor(70);
+    pdf.text(body, x + 20, ty);
+    ty += body.length * 13;
+  }
   pdf.setTextColor(0);
-  return y + 20 + body.length * 13 + 10;
+  return ty + 10;
 }
 
 function fitInto(w: number, h: number, maxW: number, maxH: number) {

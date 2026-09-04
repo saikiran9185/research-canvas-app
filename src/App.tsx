@@ -18,7 +18,7 @@ import {
   annotationsMtime, newAnnotation, toMarkdown, type Identity,
 } from "./annotations";
 import { checkForUpdatesOnLaunch } from "./updater";
-import type { Annotation, CanvasDoc, Item, MediaItem, Tool } from "./types";
+import type { Annotation, CanvasDoc, ExcerptItem, Item, MediaItem, Tool } from "./types";
 import { emptyDoc, fmtTime, uid } from "./types";
 import "./App.css";
 
@@ -51,6 +51,8 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [viewerItemId, setViewerItemId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  /** Set when a backlink is followed, so the viewer opens at that page/moment. */
+  const [pendingSourceAnchor, setPendingSourceAnchor] = useState<Annotation["anchor"] | null>(null);
   const lastMtime = useRef(0);
 
   const past = useRef<string[]>([]);
@@ -349,6 +351,53 @@ export default function App() {
     }
   }, [doc, openViewer, setDoc]);
 
+  /**
+   * Put an excerpt on the canvas next to the file it came from, keeping the
+   * anchor so the card can take you back to that exact page or moment.
+   */
+  const addExcerpt = useCallback((e: {
+    anchor: Annotation["anchor"];
+    text: string;
+    image?: string;
+    sourceName: string;
+  }) => {
+    const d = docRef.current;
+    if (!d) return;
+    const src = d.items.find((i) => i.id === e.anchor.itemId);
+    const w = 300;
+    const h = e.image ? 250 : 170;
+    // Place it clear of the source card, and clear of anything already there.
+    let x = src && "x" in src ? src.x + (src as MediaItem).w + 48 : 0;
+    let y = src && "y" in src ? src.y : 0;
+    while (d.items.some((i) => "x" in i && Math.abs(i.x - x) < 24 && Math.abs(i.y - y) < 24)) {
+      y += 32;
+    }
+
+    const excerpt: ExcerptItem = {
+      id: uid(), type: "excerpt", x, y, w, h,
+      text: e.text, image: e.image, color: me.color,
+      source: e.anchor, sourceName: e.sourceName, createdAt: Date.now(),
+    };
+    setDoc({ ...d, items: [...d.items, excerpt] });
+    setViewerItemId(null);
+    setFocusId(null);
+    setSelectedId(excerpt.id);
+    say(`Added to canvas — click ↩ ${e.sourceName} to jump back`);
+  }, [setDoc, me.color, say]);
+
+  /** Follow an excerpt's backlink to the exact place it was taken from. */
+  const openExcerptSource = useCallback((ex: ExcerptItem) => {
+    const src = docRef.current?.items.find((i) => i.id === ex.source.itemId);
+    if (!src || src.type !== "media") {
+      say(`“${ex.sourceName}” is no longer on this board.`);
+      return;
+    }
+    setViewerItemId(src.id);
+    setFocusId(null);
+    // The viewer reads page/time off the anchor when it opens.
+    setPendingSourceAnchor(ex.source);
+  }, [say]);
+
   /** The comment tool: click anywhere on the canvas to leave a note there. */
   const addBoardComment = useCallback(async (world: { x: number; y: number }) => {
     const text = await askText("Note on this spot", { placeholder: "What's here?", okLabel: "Add note" });
@@ -553,6 +602,7 @@ export default function App() {
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}
                 onOpenMedia={openViewer}
+                onOpenExcerptSource={openExcerptSource}
                 onBoardComment={addBoardComment}
                 onOpenAnnotation={openAnnotation}
               />
@@ -597,10 +647,12 @@ export default function App() {
           annotations={annotations.filter((a) => a.anchor.itemId === viewerItem.id)}
           me={me}
           focusId={focusId}
-          onClose={() => { setViewerItemId(null); setFocusId(null); }}
+          openAt={pendingSourceAnchor}
+          onClose={() => { setViewerItemId(null); setFocusId(null); setPendingSourceAnchor(null); }}
           onAdd={addAnnotation}
           onUpdate={updateAnnotation}
           onDelete={deleteAnnotation}
+          onExtract={addExcerpt}
         />
       )}
 

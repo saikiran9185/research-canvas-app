@@ -37,11 +37,26 @@ Notes that stick to a *place* or *moment* in the media:
 - Notes a collaborator syncs in appear within a couple of seconds
 - Assets are content-addressed, so the same file shared twice is stored once
 
-## 🔜 Phase 3b — next up
+## ✅ Phase 3b — source-linked extraction
+
+The interaction that makes this a research tool rather than an annotator: a
+piece of a source can be lifted onto the canvas *without becoming a copy of it*.
+
+- Select real text in a PDF — words, not a drag-box — and the note carries the
+  quote
+- **→ Canvas** on any highlight or note puts an excerpt card on the board,
+  cropped image and all
+- Every excerpt keeps a **live backlink**: click it and the viewer opens at that
+  exact page or timecode
+- Quotes flow through the notes panel, the Markdown export and the PDF export
+
+## 🔜 Phase 3c — next up
 
 - 3D model preview (`.glb` / `.gltf` / `.obj`) with comments pinned in 3D space
 - Audio waveform instead of a bare timeline
-- Text-layer selection in PDFs (select words, not just a region)
+- Drag a selection out of the viewer onto the canvas, rather than a button
+- A formal `Viewer` interface, one module per media type, so a new medium is a
+  new implementation instead of a change to the canvas
 - Tags, search across boards, grouping
 - Web-link cards
 

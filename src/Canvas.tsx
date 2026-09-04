@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem } from "./types";
-import { uid } from "./types";
+import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
+import { fmtTime, uid } from "./types";
 import { fileUrl } from "./storage";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
@@ -21,6 +21,8 @@ interface Props {
   /** Notes dropped straight onto the canvas rather than onto a file. */
   boardNotes: Annotation[];
   onOpenMedia: (itemId: string) => void;
+  /** Follow an excerpt's backlink to where it was taken from. */
+  onOpenExcerptSource: (ex: ExcerptItem) => void;
   onBoardComment: (world: { x: number; y: number }) => void;
   onOpenAnnotation: (a: Annotation) => void;
 }
@@ -66,7 +68,8 @@ function translate(item: Item, dx: number, dy: number): Item {
 // ---- component ----------------------------------------------------------
 export default function Canvas({
   doc, setDoc, tool, setTool, color, size, fill, selectedId, setSelectedId,
-  annotationCounts, boardNotes, onOpenMedia, onBoardComment, onOpenAnnotation,
+  annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
+  onBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const docRef = useRef(doc);
@@ -211,7 +214,7 @@ export default function Canvas({
   function resize(item: Item, dx: number, dy: number): Item {
     if (item.type === "stroke") return item;
     if (item.type === "text") return { ...item, w: Math.max(60, item.w + dx) };
-    if (item.type === "shape" || item.type === "note" || item.type === "media") {
+    if (item.type === "shape" || item.type === "note" || item.type === "media" || item.type === "excerpt") {
       return { ...item, w: Math.max(20, item.w + dx), h: Math.max(20, item.h + dy) };
     }
     return item;
@@ -242,7 +245,8 @@ export default function Canvas({
 
   const items = draft ? [...doc.items, draft] : doc.items;
   const vectors = items.filter((i) => i.type === "stroke" || i.type === "shape");
-  const blocks = items.filter((i) => i.type === "text" || i.type === "note" || i.type === "media");
+  const blocks = items.filter((i) =>
+    i.type === "text" || i.type === "note" || i.type === "media" || i.type === "excerpt");
 
   const cursor = spaceDown || tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
 
@@ -309,6 +313,25 @@ export default function Canvas({
                   ) : (
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
                   )}
+                </div>
+              )}
+              {it.type === "excerpt" && (
+                <div className="excerpt" style={{ borderColor: it.color }}>
+                  {it.image && <img className="excerpt-image" src={it.image} alt="" draggable={false} />}
+                  <div className="excerpt-text">{it.text}</div>
+                  {/* The backlink is the whole point: this card is a view of a
+                      place in a file, not a detached copy of it. */}
+                  <button
+                    className="excerpt-source"
+                    style={{ color: it.color }}
+                    title={`Back to ${it.sourceName}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onOpenExcerptSource(it); }}
+                  >
+                    ↩ {it.sourceName}
+                    {it.source.page !== undefined && <span className="tc">p.{it.source.page}</span>}
+                    {it.source.time !== undefined && <span className="tc">{fmtTime(it.source.time)}</span>}
+                  </button>
                 </div>
               )}
               {it.type === "media" && (

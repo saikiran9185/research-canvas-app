@@ -61,6 +61,23 @@ export interface TextItem extends Base {
   fontSize: number;
 }
 
+export interface Anchor {
+  /** The media item, or "board" for a free-floating comment on the canvas. */
+  itemId: string;
+  /** Rectangle on the media, 0..1. A point is just a zero-size rect. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Seconds into a video or audio file. */
+  time?: number;
+  /** 1-based PDF page. */
+  page?: number;
+  /** World coordinates, for comments dropped straight onto the canvas. */
+  worldX?: number;
+  worldY?: number;
+}
+
 export interface NoteItem extends Base {
   type: "note";
   x: number;
@@ -69,6 +86,30 @@ export interface NoteItem extends Base {
   h: number;
   text: string;
   color: string; // sticky background color
+}
+
+/**
+ * A piece pulled out of a source and placed on the canvas, keeping a live link
+ * back to where it came from. This is what stops the canvas becoming a pile of
+ * screenshots: the excerpt is not a copy, it is a *view* of a place in a file,
+ * and clicking it takes you back to that page or that moment.
+ */
+export interface ExcerptItem extends Base {
+  type: "excerpt";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** The words, or a caption when the excerpt is visual. */
+  text: string;
+  /** Optional still of the region, as a data URL. */
+  image?: string;
+  color: string;
+  /** Where it came from. `itemId` is the media item on this board. */
+  source: Anchor;
+  /** The source file's name, kept so the card still reads if the item is gone. */
+  sourceName: string;
+  createdAt: number;
 }
 
 /** Everything Research Canvas can put on the board. */
@@ -87,7 +128,7 @@ export interface MediaItem extends Base {
   pageCount?: number; // pdf: filled in once rendered
 }
 
-export type Item = StrokeItem | ShapeItem | TextItem | NoteItem | MediaItem;
+export type Item = StrokeItem | ShapeItem | TextItem | NoteItem | MediaItem | ExcerptItem;
 
 export interface CanvasDoc {
   version: 1;
@@ -105,23 +146,6 @@ export interface CanvasDoc {
  * media's own frame, never against the canvas — so a comment stays on the same
  * spot in the video no matter how the card is resized or where it is moved.
  */
-export interface Anchor {
-  /** The media item, or "board" for a free-floating comment on the canvas. */
-  itemId: string;
-  /** Rectangle on the media, 0..1. A point is just a zero-size rect. */
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** Seconds into a video or audio file. */
-  time?: number;
-  /** 1-based PDF page. */
-  page?: number;
-  /** World coordinates, for comments dropped straight onto the canvas. */
-  worldX?: number;
-  worldY?: number;
-}
-
 /**
  * One comment. Appended as a single JSON line to the author's own file.
  * Editing or deleting appends a NEW line with the same id and a later
@@ -138,6 +162,12 @@ export interface Annotation {
   anchor: Anchor;
   /** Freehand scribble over the frame, normalised 0..1, flat [x,y,x,y,...]. */
   scribbles?: { points: number[]; color: string; size: number }[];
+  /**
+   * The words the note is about, when they could be captured — a real text
+   * selection in a PDF or document. Lets a note be searched and quoted by its
+   * source text rather than only by what the reader typed about it.
+   */
+  quote?: string;
   resolved?: boolean;
   deleted?: boolean;
   /** Set on a reply to thread it under another comment. */
