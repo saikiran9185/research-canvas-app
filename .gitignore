@@ -28,3 +28,6 @@ public/pdfjs
 
 # Local agent settings
 .claude/
+
+# Imported media never belongs in the repo
+.assets/
