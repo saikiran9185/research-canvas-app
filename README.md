@@ -55,6 +55,11 @@ The card is a *view* of a place in a file, not a screenshot of it. That is the
 difference between a research canvas and a folder of screenshots.
 
 ### Sharing
+- **Save an annotated PDF** — your highlights and comments written into a copy
+  of the PDF as real PDF annotations. It opens in Preview, Acrobat or Zotero
+  with the notes already there, so someone without the app can read *and reply
+  to* them in their own reader.
+- **Export all as PDF** — every board in a folder and below, as one document.
 - **Export the whole board as a PDF** — the canvas, then a page per annotated
   moment with the highlight drawn onto the frame, then an index of every note.
   Someone with no app and no internet can still see exactly what was said about
@@ -164,7 +169,7 @@ updates itself — verifying the signature against the public key baked into
 
 ```bash
 npm test                       # annotation merge + convergence
-npm run test:browser           # PDF text layer, in headless Chrome
+npm run test:browser           # PDF text layer, OCR, annotated-PDF output
 cd src-tauri && cargo test     # storage layer
 ```
 

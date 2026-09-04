@@ -10,6 +10,8 @@ import { jsPDF } from "jspdf";
 import type { Annotation, CanvasDoc, MediaItem } from "./types";
 import { fmtTime } from "./types";
 import { renderBoard, mediaStill, drawAnnotationOverlay } from "./render";
+import { storage } from "./storage";
+import { loadAnnotations } from "./annotations";
 
 // A4 in points, which is jsPDF's unit here.
 const A4 = { w: 595.28, h: 841.89 };
@@ -282,4 +284,161 @@ function hexToRgb(hex: string) {
   if (!m) return { r: 60, g: 60, b: 60 };
   const n = parseInt(m[1], 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+
+// ---------------------------------------------------------------------------
+// The whole workspace, as one document
+// ---------------------------------------------------------------------------
+
+export interface BoardRef {
+  /** Absolute path to the .canvas file. */
+  path: string;
+  /** Display name, and the folder it sits in, for the contents page. */
+  name: string;
+  folder: string;
+}
+
+/**
+ * Every board in a folder tree, in one PDF: a title page, a contents list,
+ * then each board with its evidence and its notes.
+ *
+ * This is the "hand the whole project to someone" export. It reads each board
+ * and its annotations from disk rather than taking the open document, so it
+ * captures the workspace as saved, not just whatever happens to be on screen.
+ */
+export async function exportWorkspacePdf(
+  workspaceName: string,
+  boards: BoardRef[],
+  opts: ExportOptions,
+): Promise<Uint8Array> {
+  const say = opts.onProgress ?? (() => {});
+  const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait", compress: true });
+
+  // ---- title ----
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(30);
+  pdf.text(workspaceName, M, 140, { maxWidth: A4.w - M * 2 });
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(11);
+  pdf.setTextColor(110);
+  pdf.text(
+    [
+      new Date().toLocaleString(),
+      `${boards.length} board${boards.length === 1 ? "" : "s"}`,
+      "Exported from Research Canvas — an offline, open-source infinite canvas.",
+    ],
+    M, 172,
+  );
+  pdf.setTextColor(0);
+
+  // ---- load everything first, so the contents page can be accurate ----
+  interface Loaded { ref: BoardRef; doc: CanvasDoc; notes: Annotation[] }
+  const loaded: Loaded[] = [];
+  const skipped: string[] = [];
+
+  for (const [i, ref] of boards.entries()) {
+    say(`Reading ${i + 1}/${boards.length} — ${ref.name}…`);
+    try {
+      const doc = JSON.parse(await storage.readText(ref.path)) as CanvasDoc;
+      const notes = (await loadAnnotations(ref.path)).filter((a) => !a.deleted);
+      loaded.push({ ref, doc, notes });
+    } catch {
+      // One unreadable board must not lose the other forty.
+      skipped.push(ref.name);
+    }
+  }
+
+  // ---- contents ----
+  pdf.addPage([A4.w, A4.h], "portrait");
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(15);
+  pdf.text("Contents", M, M + 6);
+  let y = M + 32;
+  pdf.setFontSize(10);
+  let lastFolder: string | null = null;
+  for (const { ref, doc, notes } of loaded) {
+    if (y > A4.h - M - 20) { pdf.addPage([A4.w, A4.h], "portrait"); y = M; }
+    if (ref.folder !== lastFolder) {
+      lastFolder = ref.folder;
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(110);
+      pdf.text(ref.folder || "Home", M, y);
+      y += 15;
+    }
+    pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(30);
+    const meta = `${doc.items.length} item${doc.items.length === 1 ? "" : "s"}` +
+      `${notes.length ? `, ${notes.length} note${notes.length === 1 ? "" : "s"}` : ""}`;
+    pdf.text(ref.name, M + 12, y, { maxWidth: A4.w - M * 2 - 120 });
+    pdf.setTextColor(140);
+    pdf.text(meta, A4.w - M, y, { align: "right" });
+    y += 15;
+  }
+  if (skipped.length) {
+    y += 10;
+    pdf.setTextColor(180, 60, 60);
+    pdf.setFontSize(9);
+    pdf.text(`Could not read: ${skipped.join(", ")}`, M, y, { maxWidth: A4.w - M * 2 });
+  }
+  pdf.setTextColor(0);
+
+  // ---- each board ----
+  for (const [i, { ref, doc, notes }] of loaded.entries()) {
+    const prefix = `Board ${i + 1}/${loaded.length}`;
+
+    // A divider page, so a long export stays navigable.
+    pdf.addPage([A4.w, A4.h], "portrait");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(19);
+    pdf.text(ref.name, M, 120, { maxWidth: A4.w - M * 2 });
+    if (ref.folder) {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
+      pdf.setTextColor(130);
+      pdf.text(ref.folder, M, 142);
+      pdf.setTextColor(0);
+    }
+
+    if (opts.includeBoard && doc.items.length) {
+      say(`${prefix} — rendering ${ref.name}…`);
+      try {
+        const board = await renderBoard(doc, 3000);
+        pdf.addPage([A4.h, A4.w], "landscape");
+        const fit = fitInto(board.canvas.width, board.canvas.height, A4.h - M * 2, A4.w - M * 2 - 22);
+        pdf.addImage(jpeg(board.canvas), "JPEG", (A4.h - fit.w) / 2, M + 6, fit.w, fit.h, undefined, "FAST");
+      } catch {
+        /* a board that will not rasterise still contributes its notes */
+      }
+    }
+
+    if (opts.includeIndex && notes.length) {
+      pdf.addPage([A4.w, A4.h], "portrait");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(13);
+      pdf.text(`Notes — ${ref.name}`, M, M + 6);
+      let ny = M + 28;
+      const byItem = new Map<string, Annotation[]>();
+      for (const a of notes) {
+        if (!byItem.has(a.anchor.itemId)) byItem.set(a.anchor.itemId, []);
+        byItem.get(a.anchor.itemId)!.push(a);
+      }
+      for (const [itemId, list] of byItem) {
+        const item = doc.items.find((x) => x.id === itemId);
+        const label = item && item.type === "media" ? item.name : "On the canvas";
+        if (ny > A4.h - M - 60) { pdf.addPage([A4.w, A4.h], "portrait"); ny = M; }
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(11);
+        pdf.text(label, M, ny, { maxWidth: A4.w - M * 2 });
+        ny += 16;
+        for (const [j, a] of list.entries()) {
+          ny = writeNote(pdf, a, j + 1, ny, M, A4.w - M * 2, A4.h - M);
+        }
+        ny += 8;
+      }
+    }
+  }
+
+  say("Finishing…");
+  return new Uint8Array(pdf.output("arraybuffer") as ArrayBuffer);
 }

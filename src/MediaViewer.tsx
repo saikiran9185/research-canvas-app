@@ -35,6 +35,8 @@ interface Props {
   onUpdate: (a: Annotation) => void;
   onDelete: (a: Annotation) => void;
   /** Lift a piece of this file onto the canvas, keeping a link back here. */
+  /** Write these notes into a real .pdf the reader keeps. */
+  onSaveAnnotatedPdf?: () => void;
   onExtract: (e: {
     anchor: Annotation["anchor"];
     text: string;
@@ -56,7 +58,8 @@ interface Pending {
 }
 
 export default function MediaViewer({
-  item, annotations, me, focusId, openAt, onClose, onAdd, onUpdate, onDelete, onExtract,
+  item, annotations, me, focusId, openAt, onClose, onAdd, onUpdate, onDelete,
+  onExtract, onSaveAnnotatedPdf,
 }: Props) {
   const isTimed = item.kind === "video" || item.kind === "audio";
   const paged = item.kind === "pdf" || item.kind === "doc";
@@ -492,6 +495,16 @@ export default function MediaViewer({
             {item.name}
           </div>
           <div className="viewer-head-actions">
+            {item.kind === "pdf" && onSaveAnnotatedPdf && (
+              <button
+                className="ghost-btn"
+                onClick={onSaveAnnotatedPdf}
+                title="Write these notes into a copy of the PDF, as real annotations any reader can open"
+                disabled={!annotations.some((a) => a.anchor.page !== undefined)}
+              >
+                Save annotated PDF
+              </button>
+            )}
             <button className="ghost-btn" onClick={() => revealItemInDir(item.src).catch(() => {})}>
               Show file
             </button>

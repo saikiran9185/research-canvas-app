@@ -18,6 +18,8 @@ interface Props {
   onEnterFolder: (path: string) => void;
   onNewCanvas: () => void;
   onDelete: (e: DirEntry) => void;
+  /** Every board in this folder and below, as one PDF. */
+  onExportWorkspace: () => void;
   onClose: () => void;
 }
 
@@ -32,7 +34,8 @@ interface Meta {
 }
 
 export default function Library({
-  currentDir, workspace, entries, onOpenCanvas, onEnterFolder, onNewCanvas, onDelete, onClose,
+  currentDir, workspace, entries, onOpenCanvas, onEnterFolder, onNewCanvas,
+  onDelete, onExportWorkspace, onClose,
 }: Props) {
   const [, force] = useState(0);
   const [meta, setMeta] = useState<Map<string, Meta>>(new Map());
@@ -96,6 +99,12 @@ export default function Library({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <button
+            className="ghost-btn"
+            onClick={onExportWorkspace}
+            disabled={!boards.length && !folders.length}
+            title="Every board in this folder and below, as one PDF"
+          >Export all as PDF</button>
           <button className="cta small" onClick={onNewCanvas}>+ New canvas</button>
           <button className="ghost-btn" onClick={onClose} title="Back to the canvas">✕</button>
         </div>

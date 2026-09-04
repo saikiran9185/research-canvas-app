@@ -444,6 +444,63 @@ export default function App() {
     return bits.join(" · ");
   }, [doc]);
 
+  /**
+   * Write the notes on a PDF into a copy of that PDF, as real annotations.
+   * Unlike every other export this one leaves the app behind entirely: the
+   * result opens in Preview or Acrobat with the highlights and comments
+   * already there.
+   */
+  async function saveAnnotatedPdf(item: MediaItem) {
+    setBusy("Writing annotations into the PDF…");
+    try {
+      const { buildAnnotatedPdf } = await import("./annotatedPdf");
+      const notes = annotations.filter((a) => a.anchor.itemId === item.id);
+      const bytes = await buildAnnotatedPdf(item, notes);
+      const base = item.name.replace(/\.pdf$/i, "");
+      const path = await saveBytesAs(`${base} — annotated.pdf`, bytes, "pdf");
+      say(path ? `Saved ${path.split("/").pop()}` : "Export cancelled");
+    } catch (e) {
+      say(`Could not write the PDF: ${e}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Every board in this folder (and below) as one document. */
+  async function exportWorkspace() {
+    setBusy("Collecting boards…");
+    try {
+      const boards: { path: string; name: string; folder: string }[] = [];
+      const walk = async (dir: string, label: string, depth: number) => {
+        // A guard rather than a limit anyone will hit: a workspace nested this
+        // deep is a symlink loop, not a filing system.
+        if (depth > 8) return;
+        for (const e of await storage.listDir(dir)) {
+          if (e.is_dir) await walk(e.path, label ? `${label} / ${e.name}` : e.name, depth + 1);
+          else if (e.name.endsWith(".canvas")) {
+            boards.push({ path: e.path, name: e.name.replace(/\.canvas$/, ""), folder: label });
+          }
+        }
+      };
+      await walk(currentDir, currentDir === workspace ? "" : currentDir.split("/").pop() ?? "", 0);
+
+      if (!boards.length) { say("No boards in this folder to export."); return; }
+
+      const { exportWorkspacePdf } = await import("./exportPdf");
+      const bytes = await exportWorkspacePdf(
+        currentDir.split("/").pop() || "Workspace",
+        boards,
+        { includeBoard: true, includeEvidence: false, includeIndex: true, onProgress: setBusy },
+      );
+      const path = await saveBytesAs(`${currentDir.split("/").pop() || "Workspace"}.pdf`, bytes, "pdf");
+      say(path ? `Exported ${boards.length} boards to ${path.split("/").pop()}` : "Export cancelled");
+    } catch (e) {
+      say(`Export failed: ${e}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function exportNotes(format: "md" | "json" | "csv" | "pdf") {
     if (!doc) return;
 
@@ -604,6 +661,7 @@ export default function App() {
               onEnterFolder={setCurrentDir}
               onNewCanvas={newCanvas}
               onDelete={deleteEntry}
+              onExportWorkspace={exportWorkspace}
               onClose={() => setLibraryOpen(false)}
             />
           )}
@@ -668,6 +726,7 @@ export default function App() {
           onUpdate={updateAnnotation}
           onDelete={deleteAnnotation}
           onExtract={addExcerpt}
+          onSaveAnnotatedPdf={() => saveAnnotatedPdf(viewerItem)}
         />
       )}
 

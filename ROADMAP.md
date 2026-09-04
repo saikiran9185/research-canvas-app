@@ -60,6 +60,19 @@ there is nothing to select and nothing to quote.
   extraction need no special case for scans
 - Everything is bundled — no network, no OCR service, no account
 
+## ✅ Taking the work out of the app
+
+Notes are only useful if they can leave.
+
+- **Save annotated PDF** — writes your highlights and comments into a copy of
+  the PDF as *real* PDF annotations. It opens in Preview, Acrobat, Zotero or
+  anything else with the notes already there; no app required, and colleagues
+  can reply to them in their own reader.
+- **Export all as PDF** — every board in a folder and below, as one document:
+  a title page, contents, then each board with its notes.
+- Text is written as UTF-16, so notes in Telugu, Hindi or any other script
+  survive the round trip.
+
 ## 🔜 Phase 3c — next up
 
 - **PDF depth first** — continuous scroll through pages, a page thumbnail rail,
@@ -69,8 +82,11 @@ there is nothing to select and nothing to quote.
 - Drag a selection out of the viewer onto the canvas, rather than a button
 - A formal `Viewer` interface, one module per media type, so a new medium is a
   new implementation instead of a change to the canvas
+- A doc editor beside the canvas — structured notes with headings and lists,
+  linked to boards
 - Tags, search across boards, grouping
 - Web-link cards
+- An iPad version (Tauri v2 supports iOS; needs a touch and pencil redesign)
 
 ## 🌐 Phase 4 — optional live sync
 

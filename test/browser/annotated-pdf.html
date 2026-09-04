@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Annotated PDF output</title>
+<style>body{margin:0;font:13px monospace}#out{white-space:pre;padding:12px}</style>
+<div id="out">running…</div>
+<script type="module">
+  // The annotated-PDF export is the one output that leaves the app entirely,
+  // so it has to be a real PDF with real annotation dictionaries — not our own
+  // format wearing a .pdf extension. This builds one and reads it back.
+  import { PDFDocument, PDFName } from "/node_modules/pdf-lib/dist/pdf-lib.esm.js";
+
+  const results = [];
+  const check = (n, ok, d = "") => results.push({ n, ok: !!ok, d });
+
+  try {
+    // A two-page source document to write into.
+    const src = await PDFDocument.create();
+    const p1 = src.addPage([595, 842]);
+    p1.drawText("Page one", { x: 60, y: 760, size: 24 });
+    const p2 = src.addPage([595, 842]);
+    p2.drawText("Page two", { x: 60, y: 760, size: 24 });
+    p2.setRotation({ type: "degrees", angle: 90 });
+    const srcBytes = await src.save();
+
+    // Stand in for storage.readBytes, which needs the Tauri backend.
+    const { buildAnnotatedPdf } = await import("/src/annotatedPdf.ts");
+    const storage = (await import("/src/storage.ts")).storage;
+    storage.readBytes = async () => srcBytes;
+
+    const item = { id: "m1", type: "media", kind: "pdf", name: "test.pdf",
+                   src: "/fake.pdf", x: 0, y: 0, w: 100, h: 100 };
+    const notes = [
+      { id: "a", authorId: "u", author: "Saikiran", createdAt: Date.now(), updatedAt: Date.now(),
+        text: "This clause matters", quote: "shall be available", color: "#f59e0b",
+        anchor: { itemId: "m1", page: 1, x: 0.1, y: 0.2, w: 0.5, h: 0.04 } },
+      { id: "b", authorId: "u", author: "Saikiran", createdAt: Date.now(), updatedAt: Date.now(),
+        text: "Check this figure", color: "#3b82f6",
+        anchor: { itemId: "m1", page: 1, x: 0.4, y: 0.6, w: 0, h: 0 } },
+      { id: "c", authorId: "u", author: "నంకి", createdAt: Date.now(), updatedAt: Date.now(),
+        text: "తెలుగు — non-Latin text must survive the round trip", color: "#10b981",
+        anchor: { itemId: "m1", page: 2, x: 0.2, y: 0.3, w: 0.3, h: 0.05 } },
+      { id: "d", authorId: "u", author: "Ghost", createdAt: Date.now(), updatedAt: Date.now(),
+        text: "deleted", deleted: true, color: "#ef4444",
+        anchor: { itemId: "m1", page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.02 } },
+      { id: "e", authorId: "u", author: "Other", createdAt: Date.now(), updatedAt: Date.now(),
+        text: "belongs to another file", color: "#ef4444",
+        anchor: { itemId: "OTHER", page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.02 } },
+    ];
+
+    const out = await buildAnnotatedPdf(item, notes);
+    check("produces bytes", out.length > 0, `${(out.length / 1024).toFixed(1)} KB`);
+    const header = new TextDecoder().decode(out.slice(0, 5));
+    check("is a real PDF", header === "%PDF-", JSON.stringify(header));
+
+    // Read it back the way any other reader would.
+    const back = await PDFDocument.load(out);
+    check("still has both pages", back.getPageCount() === 2, `${back.getPageCount()} pages`);
+
+    const annotsOn = (i) => {
+      const arr = back.getPage(i).node.Annots();
+      return arr ? arr.asArray().map((ref) => back.context.lookup(ref)) : [];
+    };
+    const a1 = annotsOn(0), a2 = annotsOn(1);
+    check("page 1 has two annotations", a1.length === 2, `${a1.length}`);
+    check("page 2 has one annotation", a2.length === 1, `${a2.length}`);
+    check("deleted and foreign notes are skipped", a1.length + a2.length === 3);
+
+    const sub = (d) => d.get(PDFName.of("Subtype"))?.asString?.() ?? String(d.get(PDFName.of("Subtype")));
+    const subtypes = [...a1, ...a2].map(sub);
+    check("a quoted note becomes a Highlight", subtypes.includes("/Highlight"), subtypes.join(" "));
+    check("a point note becomes a Text note", subtypes.includes("/Text"), subtypes.join(" "));
+
+    const hi = [...a1].find((d) => sub(d) === "/Highlight");
+    check("the highlight carries QuadPoints", !!hi.get(PDFName.of("QuadPoints")));
+    const decode = (d, key) => {
+      const v = d.get(PDFName.of(key));
+      return v.decodeText ? v.decodeText() : v.asString();
+    };
+    const contents = decode(hi, "Contents");
+    check("the note text survives", contents.includes("This clause matters"), JSON.stringify(contents.slice(0, 40)));
+    check("the quote survives", contents.includes("shall be available"));
+    check("curly quotes are not mangled", contents.includes("\u201c") && contents.includes("\u201d"),
+      JSON.stringify(contents.slice(0, 24)));
+    check("the author survives", decode(hi, "T").includes("Saikiran"));
+
+    // Non-Latin text is the case PDFDocEncoding destroys silently.
+    const tel = a2[0];
+    check("Telugu note text survives", decode(tel, "Contents").includes("\u0c24\u0c46\u0c32\u0c41\u0c17\u0c41"),
+      JSON.stringify(decode(tel, "Contents").slice(0, 20)));
+    check("a non-Latin author name survives", decode(tel, "T") === "\u0c28\u0c02\u0c15\u0c3f",
+      JSON.stringify(decode(tel, "T")));
+
+    // Geometry: y must be flipped, because PDF space starts at the bottom.
+    const rect = hi.get(PDFName.of("Rect")).asArray().map((n) => n.asNumber());
+    const [x1, y1, x2, y2] = rect;
+    check("x maps across the page", Math.abs(x1 - 0.1 * 595) < 1, `x1=${x1.toFixed(1)} want ${(0.1 * 595).toFixed(1)}`);
+    check("y is flipped to PDF space", Math.abs(y2 - (1 - 0.2) * 842) < 1,
+      `y2=${y2.toFixed(1)} want ${((1 - 0.2) * 842).toFixed(1)}`);
+    check("the rect is not inside out", x2 > x1 && y2 > y1, `${x1.toFixed(0)},${y1.toFixed(0)} → ${x2.toFixed(0)},${y2.toFixed(0)}`);
+
+    // A rotated page must still put the note on the page.
+    const r2 = a2[0].get(PDFName.of("Rect")).asArray().map((n) => n.asNumber());
+    check("a rotated page stays in bounds",
+      r2[0] >= 0 && r2[2] <= 595 + 1 && r2[1] >= 0 && r2[3] <= 842 + 1,
+      r2.map((v) => v.toFixed(0)).join(","));
+  } catch (e) {
+    check("no exception", false, String((e && e.stack) || e).slice(0, 200));
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  document.getElementById("out").textContent =
+    results.map((r) => `${r.ok ? "PASS" : "FAIL"}  ${r.n}${r.d ? `  [${r.d}]` : ""}`).join("\n")
+    + `\n\n${results.length - failed.length}/${results.length} passed`;
+  document.title = failed.length ? `FAILED ${failed.length}` : "ALL PASS";
+  window.__done = true;
+</script>
