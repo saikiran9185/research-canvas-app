@@ -4,18 +4,33 @@ A native **infinite canvas for research** — drop in any medium, then pin a not
 the exact frame, page or region you mean. Built as a **Tauri** desktop app
 (Rust + React) with a fully custom canvas engine.
 
-> Free, open source, and offline. No account, no server, no company in the
-> middle. Your boards are plain files in a folder you choose.
+**Free for everyone, forever.** No subscription, no paid tier, no "pro" edition,
+no account. Built for students, researchers, designers and anyone working across
+disciplines — including inside companies. Funded by grants and donations, never
+by charging the people who use it. See [FUNDING.md](FUNDING.md).
+
+> Offline by default. No account, no server, no company in the middle. Your
+> boards are plain files in a folder you choose, on your own disk.
+
+## Why it exists
+
+Research spreads across formats. A paper, a video reference, a recording, a
+photograph, a 3D file — and the discussion about them ends up somewhere else
+entirely, in screenshots pasted into chat. Research Canvas puts the material and
+the thinking in one place, and lets a note attach to the *exact* thing it is
+about: this frame, this page, this region. Then it lets you share that with
+someone far away without either of you sending files back and forth.
 
 ## Features
 
 ### The canvas
 - **Infinite canvas** — pan (scroll), zoom (⌘/pinch), dotted grid
 - **Tools** — select, pan, freehand pen, rectangle, ellipse, arrow, text, sticky notes, comment
-- **Any medium** — images (incl. avif/heic/tiff), video, audio, **PDF**, and 3D file cards
+- **Any medium** — images (incl. avif/heic/tiff), video, audio, **PDF**, **Word/text documents**, and 3D file cards
 - **Drag files straight onto the canvas**, or import from the toolbar
 - **Move & resize**, undo/redo (⌘Z / ⌘⇧Z), zoom-to-fit
 - **Light / dark / follow-the-system** appearance
+- **Library view** (⌘⇧O) — every board in a folder as a grid of live thumbnails
 
 ### Annotation — the point of the whole thing
 Open any file on the board (double-click, or *Annotate*) to get a focus view:
@@ -55,6 +70,17 @@ npm run tauri dev      # launches the app with hot reload
 ```
 
 Requires Node and Rust (`brew install rust`).
+
+## Install
+
+Download the `.dmg` from [Releases](../../releases), or build it yourself:
+
+```bash
+npm install
+npm run tauri build
+```
+
+The app lands in `src-tauri/target/release/bundle/`. Drag it to `/Applications`.
 
 ## Build a local app
 
@@ -131,16 +157,21 @@ cd src-tauri && cargo test     # storage layer
 
 ## Contributing & community
 
-This is a community project and we'd love your help — code, design, testing, or ideas.
+Volunteers build this, and help is genuinely wanted — code, design, testing,
+translation, or ideas.
 
-- Read **[CONTRIBUTING.md](CONTRIBUTING.md)** to get set up (we use a simple DCO sign-off, no CLA)
-- See the **[ROADMAP.md](ROADMAP.md)** for what's being built next
-- How the project is run and stays community-owned: **[GOVERNANCE.md](GOVERNANCE.md)**
-- Be kind: **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)**
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — get set up (simple DCO sign-off, no CLA:
+  you keep the copyright to your own work)
+- **[ROADMAP.md](ROADMAP.md)** — what's being built next
+- **[GOVERNANCE.md](GOVERNANCE.md)** — who decides what, and how
+- **[FUNDING.md](FUNDING.md)** — where money comes from, and why users never pay
+- **[TRADEMARK.md](TRADEMARK.md)** — using the name (fork freely; name your fork)
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — be kind
 - New here? Look for issues labelled **`good first issue`**, or open a **Discussion**.
 
-## License
+## Licence
 
-**[AGPL-3.0-or-later](LICENSE).** You're free to use, study, change, and share it —
-and any version you distribute or host must stay open source too. This keeps Research
-Canvas free for the community, forever.
+**[AGPL-3.0-or-later](LICENSE).** You are free to use, study, change and share it —
+and any version you distribute or host must stay open source too. That is what
+keeps Research Canvas free, permanently, for everyone. Contributions come in under
+the DCO, so no single person or company owns the codebase and nobody can close it.
