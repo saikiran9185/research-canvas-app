@@ -106,6 +106,19 @@ mod tests {
     }
 
     #[test]
+    fn import_refuses_a_workspace_that_is_not_an_absolute_path() {
+        // Regression: an empty workspace once resolved ".assets" against the
+        // process's cwd and wrote a user's PDF into the source tree.
+        let d = tmp("import3");
+        let src = d.join("x.png");
+        fs::write(&src, b"bytes").unwrap();
+        for ws in ["", "   ", "relative/dir"] {
+            let r = import_media_hashed(ws.into(), src.to_string_lossy().into());
+            assert!(r.is_err(), "{ws:?} must be rejected, got {r:?}");
+        }
+    }
+
+    #[test]
     fn write_file_bytes_round_trips_binary() {
         let d = tmp("bytes");
         let f = d.join("out").join("doc.pdf").to_string_lossy().to_string();

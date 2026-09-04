@@ -252,7 +252,14 @@ fn content_hash(bytes: &[u8]) -> String {
 /// the same file twice reuses the existing copy instead of duplicating it.
 #[tauri::command]
 fn import_media_hashed(workspace: String, src: String) -> Result<String, String> {
-    let assets = Path::new(&workspace).join(".assets");
+    // An empty or relative workspace would resolve ".assets" against the
+    // process's working directory and scatter the user's files somewhere they
+    // never chose. Refuse rather than guess.
+    let ws = Path::new(&workspace);
+    if workspace.trim().is_empty() || !ws.is_absolute() {
+        return Err("workspace is not ready yet — try again in a moment".into());
+    }
+    let assets = ws.join(".assets");
     fs::create_dir_all(&assets).map_err(|e| e.to_string())?;
     let src_path = Path::new(&src);
     let bytes = fs::read(src_path).map_err(|e| e.to_string())?;

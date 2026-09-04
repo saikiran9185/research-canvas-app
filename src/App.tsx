@@ -269,6 +269,8 @@ export default function App() {
   // --- media import ------------------------------------------------------
   const addFiles = useCallback(async (files: string[], at?: { x: number; y: number }) => {
     if (!docRef.current) { say("Open or create a canvas first."); return; }
+    // Guard the same invariant the backend enforces: no workspace, no import.
+    if (!workspace) { say("Still starting up — try that again in a moment."); return; }
     const rect = areaRef.current!.getBoundingClientRect();
     const cam = docRef.current.camera;
     const cx = at ? at.x : (rect.width / 2 - cam.x) / cam.zoom;
