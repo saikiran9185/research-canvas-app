@@ -10,7 +10,7 @@ import type React from "react";
 import type { Annotation, MediaItem } from "./types";
 import { fmtTime } from "./types";
 import { fileUrl } from "./storage";
-import { renderPage, pageCount, renderTextLayer } from "./pdf";
+import { renderPage, pageCount, pageSize, renderTextLayer } from "./pdf";
 import "./textLayer.css";
 import { loadDoc, type DocContent } from "./doc";
 import { newAnnotation, type Identity } from "./annotations";
@@ -77,8 +77,45 @@ export default function MediaViewer({
   const [pages, setPages] = useState(item.pageCount ?? 0);
   const [pageImg, setPageImg] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  /** The page's intrinsic size in points, used to fit it to the window. */
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  /** The area available to show the page in, in CSS pixels. */
+  const [avail, setAvail] = useState({ w: 900, h: 700 });
+  /** Number of selectable text spans; 0 means a scanned page. */
+  const [textSpans, setTextSpans] = useState<number | null>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
-  const pageImgRef = useRef<HTMLImageElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Measure the space the page has to live in, and keep measuring — the window
+  // can be resized and the rail can appear.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      setAvail({
+        w: Math.max(200, el.clientWidth - padX),
+        h: Math.max(200, el.clientHeight - padY),
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /**
+   * The width the page is DISPLAYED at, in CSS pixels: fit to the available
+   * box, then scaled by the zoom control.
+   */
+  const displayW = useMemo(() => {
+    if (!natural) return 0;
+    const fit = Math.min(avail.w, avail.h * (natural.w / natural.h));
+    return Math.max(120, Math.round(fit * zoom));
+  }, [natural, avail, zoom]);
 
   // --- word / text documents ---------------------------------------------
   // The page is rendered at a FIXED width so text never reflows: a highlight
@@ -95,17 +132,18 @@ export default function MediaViewer({
     return () => { ok = false; };
   }, [item.src, item.kind]);
 
+  // Page count and intrinsic size — cheap, and needed before anything can be
+  // laid out.
   useEffect(() => {
     if (item.kind !== "pdf") return;
     let alive = true;
     (async () => {
       try {
-        const n = await pageCount(item.src);
+        const [n, size] = await Promise.all([pageCount(item.src), pageSize(item.src, page)]);
         if (!alive) return;
         setPages(n);
-        const w = Math.min(1400, Math.max(700, stageRef.current?.clientWidth ?? 900));
-        const r = await renderPage(item.src, page, w * 1.5);
-        if (alive) { setPageImg(r.url); setPdfError(null); }
+        setNatural(size);
+        setPdfError(null);
       } catch (e) {
         if (alive) setPdfError(String(e));
       }
@@ -113,28 +151,40 @@ export default function MediaViewer({
     return () => { alive = false; };
   }, [item.src, item.kind, page]);
 
+  // Rasterise the page at the DISPLAY size times the device pixel ratio.
+  // Rendering at a fixed guess is what made pages look soft: on a Retina screen
+  // a 1050px image shown 800px wide is stretched across 1600 device pixels.
+  useEffect(() => {
+    if (item.kind !== "pdf" || !displayW) return;
+    let alive = true;
+    const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    // Cap the raster so a huge zoom cannot allocate an unreasonable canvas.
+    const px = Math.min(6000, Math.round(displayW * dpr));
+    const id = window.setTimeout(() => {
+      renderPage(item.src, page, px)
+        .then((r) => { if (alive) { setPageImg(r.url); setPdfError(null); } })
+        .catch((e) => { if (alive) setPdfError(String(e)); });
+    }, 60); // coalesce bursts while the window is being dragged
+    return () => { alive = false; window.clearTimeout(id); };
+  }, [item.src, item.kind, page, displayW]);
+
   /**
    * Lay the selectable text over the rendered page. It has to be re-run
    * whenever the displayed size changes, because pdf.js positions the spans in
    * CSS pixels against a specific width.
    */
-  const layoutTextLayer = useCallback(() => {
-    const el = textLayerRef.current;
-    const img = pageImgRef.current;
-    if (item.kind !== "pdf" || !el || !img || !img.clientWidth) return;
-    renderTextLayer(item.src, page, img.clientWidth, el).catch(() => {
-      // No text layer (a scanned PDF, say) — region highlighting still works.
-      el.replaceChildren();
-    });
-  }, [item.kind, item.src, page]);
-
   useEffect(() => {
-    if (item.kind !== "pdf" || !pageImg) return;
-    layoutTextLayer();
-    const ro = new ResizeObserver(layoutTextLayer);
-    if (pageImgRef.current) ro.observe(pageImgRef.current);
-    return () => ro.disconnect();
-  }, [pageImg, layoutTextLayer, item.kind]);
+    const el = textLayerRef.current;
+    if (item.kind !== "pdf" || !el || !displayW) return;
+    let alive = true;
+    renderTextLayer(item.src, page, displayW, el)
+      .then((n) => { if (alive) setTextSpans(n); })
+      .catch(() => {
+        // No text layer (a scanned page) — region highlighting still works.
+        if (alive) { el.replaceChildren(); setTextSpans(0); }
+      });
+    return () => { alive = false; };
+  }, [item.kind, item.src, page, displayW]);
 
   /**
    * Turn a live text selection into a pending note: the union of the selection
@@ -432,10 +482,11 @@ export default function MediaViewer({
               </button>
             </div>
 
-            <div className="viewer-stage-scroll">
+            <div className="viewer-stage-scroll" ref={scrollRef}>
               <div
                 ref={stageRef}
                 className={"viewer-stage mode-" + mode}
+                style={item.kind === "pdf" && displayW ? { width: displayW } : undefined}
                 onPointerDown={layerPointerDown}
                 onPointerMove={layerPointerMove}
                 onPointerUp={layerPointerUp}
@@ -473,17 +524,19 @@ export default function MediaViewer({
                     ? <div className="stage-fallback">Could not read this PDF.<br /><small>{pdfError}</small></div>
                     : pageImg
                       ? <>
+                          {/* The image is sized in CSS pixels while the bitmap
+                              behind it is rendered at device resolution, so the
+                              page is sharp and the text layer lines up exactly. */}
                           <img
-                            ref={pageImgRef}
-                            className="stage-media"
+                            className="stage-media pdf-render"
                             src={pageImg}
                             alt={`page ${page}`}
                             draggable={false}
-                            onLoad={layoutTextLayer}
+                            style={{ width: displayW, height: "auto" }}
                           />
                           {/* Invisible, selectable text sitting exactly over the
-                              rendered page. Only live in "Look" mode, so the
-                              highlight and scribble tools can still drag. */}
+                              rendered page. Live only in "Select text" mode, so
+                              the highlight and scribble tools can still drag. */}
                           <div
                             ref={textLayerRef}
                             className="textLayer"
@@ -606,6 +659,20 @@ export default function MediaViewer({
                 <button className="vtool" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>⟨</button>
                 <span className="tc mono">Page {page}{pages ? ` / ${pages}` : ""}</span>
                 <button className="vtool" onClick={() => setPage((p) => Math.min(pages || p + 1, p + 1))} disabled={!!pages && page >= pages}>⟩</button>
+
+                <div className="zoom-group">
+                  <button className="vtool" title="Zoom out" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))} disabled={zoom <= 0.5}>−</button>
+                  <button className="vtool zoom-level" title="Fit to window" onClick={() => setZoom(1)}>
+                    {Math.round(zoom * 100)}%
+                  </button>
+                  <button className="vtool" title="Zoom in" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} disabled={zoom >= 4}>+</button>
+                </div>
+
+                {textSpans === 0 && (
+                  <span className="scan-warn" title="This page has no embedded text — it is probably a scan or an image-only export.">
+                    No text layer — use Highlight
+                  </span>
+                )}
                 <div className="page-dots">
                   {Array.from({ length: Math.min(pages, 60) }, (_, i) => i + 1).map((n) => {
                     const has = annotations.some((a) => a.anchor.page === n);

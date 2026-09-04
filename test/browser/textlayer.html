@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pdf.js text layer contract</title>
+<link rel="stylesheet" href="/src/textLayer.css">
+<style>
+  body { margin: 0; -webkit-user-select: none; user-select: none; }
+  #stage { position: relative; line-height: 0; }
+  #stage .textLayer { -webkit-user-select: text; user-select: text; }
+  #out { font: 13px monospace; white-space: pre; padding: 12px; }
+</style>
+<div id="stage"><img id="img"><div id="tl" class="textLayer"></div></div>
+<div id="out">running…</div>
+<script type="module">
+  // Exercises the exact contract src/pdf.ts depends on: pdf.js writes the text
+  // layer's size as round(down, var(--total-scale-factor) * Npx, ...) and never
+  // defines that variable, so the embedder must. If this test goes red after a
+  // pdfjs upgrade, PDF text selection is broken in the app.
+  import * as pdfjs from "/node_modules/pdfjs-dist/build/pdf.mjs";
+  pdfjs.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/build/pdf.worker.min.mjs";
+
+  const results = [];
+  const check = (name, cond, detail = "") =>
+    results.push({ name, ok: !!cond, detail });
+
+  try {
+    const bytes = new Uint8Array(await (await fetch("./sample.pdf")).arrayBuffer());
+    const doc = await pdfjs.getDocument({
+      data: bytes,
+      standardFontDataUrl: "/node_modules/pdfjs-dist/standard_fonts/",
+    }).promise;
+    const page = await doc.getPage(1);
+
+    const DISPLAY_W = 700;
+    const base = page.getViewport({ scale: 1 });
+    const scale = DISPLAY_W / base.width;
+    const viewport = page.getViewport({ scale });
+
+    // --- render the bitmap at device resolution, displayed at DISPLAY_W ---
+    const dpr = 2;
+    const hi = page.getViewport({ scale: scale * dpr });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(hi.width);
+    canvas.height = Math.ceil(hi.height);
+    await page.render({ canvas, viewport: hi, background: "#ffffff" }).promise;
+    const img = document.getElementById("img");
+    img.src = canvas.toDataURL("image/png");
+    img.style.width = DISPLAY_W + "px";
+    document.getElementById("stage").style.width = DISPLAY_W + "px";
+    await img.decode();
+
+    check("bitmap is rendered above CSS size (sharp on retina)",
+      canvas.width >= DISPLAY_W * dpr, `${canvas.width}px for ${DISPLAY_W}css`);
+
+    // --- the text layer, exactly as src/pdf.ts does it ---
+    const tl = document.getElementById("tl");
+    pdfjs.setLayerDimensions(tl, viewport);
+    await new pdfjs.TextLayer({
+      textContentSource: page.streamTextContent(), container: tl, viewport,
+    }).render();
+
+    const spans = [...tl.querySelectorAll("span")];
+    check("text spans exist", spans.length > 0, `${spans.length} spans`);
+    check("text layer has non-zero width", tl.offsetWidth > 0, `${tl.offsetWidth}px`);
+    check("text layer matches the page width", Math.abs(tl.offsetWidth - DISPLAY_W) <= 2,
+      `${tl.offsetWidth} vs ${DISPLAY_W}`);
+
+    const sized = spans.filter((s) => s.offsetWidth > 0 && s.offsetHeight > 0);
+    check("spans have real size (THE selection bug)", sized.length > 0,
+      `${sized.length}/${spans.length} sized`);
+
+    // Spans must be laid out down the page, not piled at the origin. (x is a
+    // poor signal — a left-aligned document legitimately shares one x.)
+    const ys = new Set(sized.map((s) => Math.round(s.getBoundingClientRect().top)));
+    check("spans are laid out down the page", ys.size > 1, `${ys.size} distinct y`);
+    const stageTop = document.getElementById("stage").getBoundingClientRect().top;
+    const first = sized[0].getBoundingClientRect();
+    check("text sits over the page, not at the origin",
+      first.top - stageTop > 1 && first.left > 0,
+      `top+${Math.round(first.top - stageTop)} left ${Math.round(first.left)}`);
+
+    // --- the spans must be selectable BY A USER ---
+    // This assertion exists because the obvious one does not cover it: a
+    // programmatic Range ignores `user-select` completely, so selecting via the
+    // API succeeds even on text no mouse could ever select. The app sets
+    // `user-select: none` on <body>, so this is the property that decides
+    // whether dragging across a paragraph does anything at all.
+    const target = sized.find((s) => s.textContent.trim().length > 4);
+    const cs = getComputedStyle(target);
+    const us = cs.userSelect || cs.webkitUserSelect;
+    check("spans are user-selectable (not just Range-selectable)", us !== "none", `user-select: ${us}`);
+    const layerUs = getComputedStyle(tl).userSelect || getComputedStyle(tl).webkitUserSelect;
+    check("the text layer itself allows selection", layerUs !== "none", `user-select: ${layerUs}`);
+
+    // --- selection actually yields the document's words ---
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const text = sel.toString().trim();
+    check("selecting a span returns its text", text.length > 0, JSON.stringify(text.slice(0, 40)));
+
+    const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+    check("selection produces geometry for an anchor", rects.length > 0, `${rects.length} rects`);
+  } catch (e) {
+    check("no exception", false, String(e && e.stack || e));
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  document.getElementById("out").textContent =
+    results.map((r) => `${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  [${r.detail}]` : ""}`).join("\n") +
+    `\n\n${results.length - failed.length}/${results.length} passed`;
+  document.title = failed.length ? `FAILED ${failed.length}` : "ALL PASS";
+  window.__done = true;
+</script>

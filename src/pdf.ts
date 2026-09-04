@@ -86,6 +86,14 @@ export async function pageCount(path: string): Promise<number> {
   return (await openPdf(path)).numPages;
 }
 
+/** A page's intrinsic size in PDF points, for fitting it to the window. */
+export async function pageSize(path: string, pageNumber: number): Promise<{ w: number; h: number }> {
+  const doc = await openPdf(path);
+  const page = await doc.getPage(Math.min(Math.max(1, pageNumber), doc.numPages));
+  const v = page.getViewport({ scale: 1 });
+  return { w: v.width, h: v.height };
+}
+
 /** Text on a page, so a highlight can carry the words it covers. */
 export async function pageText(path: string, pageNumber: number): Promise<string> {
   const doc = await openPdf(path);
@@ -108,15 +116,26 @@ export async function renderTextLayer(
   pageNumber: number,
   displayWidth: number,
   container: HTMLDivElement,
-): Promise<void> {
+): Promise<number> {
   const doc = await openPdf(path);
   const page = await doc.getPage(Math.min(Math.max(1, pageNumber), doc.numPages));
 
   const base = page.getViewport({ scale: 1 });
-  const viewport = page.getViewport({ scale: displayWidth / base.width });
+  const scale = displayWidth / base.width;
+  const viewport = page.getViewport({ scale });
 
   container.replaceChildren();
-  // pdf.js positions every span from these, so they must be set before render.
+
+  // `setLayerDimensions` writes width/height as
+  //     round(down, var(--total-scale-factor) * Npx, var(--scale-round-x))
+  // and pdf.js does NOT define those variables — the embedder must, on the
+  // container or an ancestor. Leave them out and every span collapses to zero
+  // size: the page looks fine (it is a separate image) but nothing is
+  // selectable, because there is nothing there to select.
+  container.style.setProperty("--total-scale-factor", String(scale));
+  container.style.setProperty("--scale-round-x", "1px");
+  container.style.setProperty("--scale-round-y", "1px");
+
   pdfjs.setLayerDimensions(container, viewport);
 
   const layer = new pdfjs.TextLayer({
@@ -125,4 +144,21 @@ export async function renderTextLayer(
     viewport,
   });
   await layer.render();
+
+  const spans = container.querySelectorAll("span").length;
+
+  // Guard the failure mode that caused this function to be rewritten: if the
+  // custom properties above are missing or renamed by a pdfjs upgrade, the
+  // spans still exist but collapse to zero size, so the page looks perfect and
+  // selection silently does nothing. Fail loudly instead.
+  if (spans > 0 && container.offsetWidth === 0) {
+    throw new Error(
+      "pdf.js text layer laid out at zero width — the --total-scale-factor " +
+      "contract with setLayerDimensions has changed; see renderTextLayer",
+    );
+  }
+
+  // Zero spans is a different thing entirely: a scanned page with no embedded
+  // text. The UI says so rather than leaving the reader wondering.
+  return spans;
 }

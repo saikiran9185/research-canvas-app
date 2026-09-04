@@ -399,6 +399,14 @@ body {
   position: relative; max-width: 100%; max-height: 100%;
   line-height: 0; touch-action: none;
 }
+/* A PDF page sizes itself (fit-to-window x zoom) so the bitmap, the text layer
+   and the annotation layer all share one coordinate space. */
+.viewer-stage:has(.pdf-render) { max-width: none; max-height: none; }
+.stage-media.pdf-render {
+  max-width: none; max-height: none;
+  /* The bitmap is rendered above CSS size; let the browser downscale smoothly. */
+  image-rendering: auto;
+}
 .viewer-stage.mode-region, .viewer-stage.mode-draw { cursor: crosshair; }
 .viewer-stage.mode-pin { cursor: cell; }
 .stage-media { max-width: 100%; max-height: calc(100vh - 300px); display: block; }
@@ -704,3 +712,14 @@ body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .excerpt-source:hover { background: var(--accent-soft); }
+
+/* ---- pdf zoom + scan warning ---- */
+.zoom-group { display: flex; align-items: center; gap: 2px; margin-left: 4px; }
+.zoom-level { min-width: 58px; font-variant-numeric: tabular-nums; }
+.scan-warn {
+  font-size: 11px; font-weight: 600; color: #b45309;
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  border-radius: 6px; padding: 3px 8px; white-space: nowrap;
+}
+/* The scroll box must be able to scroll a zoomed page in both directions. */
+.viewer-stage-scroll { align-items: safe center; justify-content: safe center; }

@@ -52,6 +52,9 @@ piece of a source can be lifted onto the canvas *without becoming a copy of it*.
 
 ## 🔜 Phase 3c — next up
 
+- **PDF depth first** — continuous scroll through pages, a page thumbnail rail,
+  search within a document, and fallback extraction for multi-column and
+  scanned PDFs (OCR), which is where real-world documents break
 - 3D model preview (`.glb` / `.gltf` / `.obj`) with comments pinned in 3D space
 - Audio waveform instead of a bare timeline
 - Drag a selection out of the viewer onto the canvas, rather than a button

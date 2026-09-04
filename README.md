@@ -37,8 +37,10 @@ Open any file on the board (double-click, or *Annotate*) to get a focus view:
 
 - **Video** — play, pause, step a frame at a time, and pin a comment to a
   timecode. Every note shows as a tick on the timeline; click it to jump there.
-- **PDF** — page through the document and drag a box over a paragraph to
-  highlight it and attach a note. Pages carrying notes are marked in the pager.
+- **PDF** — rendered at your screen's real resolution (sharp on Retina), with
+  zoom and fit-to-window. Select actual text to quote it in a note, or drag a
+  box over a region. Pages carrying notes are marked in the pager, and a page
+  with no text layer says so instead of failing silently.
 - **Images** — highlight a region, drop a pin, or scribble on it freehand.
 - **Audio** — pin a comment to a moment.
 - **All in one place** — a board-wide notes panel, searchable, filterable by
@@ -160,8 +162,14 @@ updates itself — verifying the signature against the public key baked into
 
 ```bash
 npm test                       # annotation merge + convergence
+npm run test:browser           # PDF text layer, in headless Chrome
 cd src-tauri && cargo test     # storage layer
 ```
+
+The browser test needs Google Chrome (or set `CHROME_PATH`). It exists because
+the PDF text layer is pure layout: get it wrong and the page still looks
+perfect while nothing is selectable, and nothing throws. Only a real layout
+engine catches that.
 
 ## Contributing & community
 
