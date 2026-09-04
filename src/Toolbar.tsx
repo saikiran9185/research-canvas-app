@@ -14,6 +14,9 @@ interface Props {
   canUndo: boolean;
   canRedo: boolean;
   onZoomFit: () => void;
+  notesOpen: boolean;
+  noteCount: number;
+  onToggleNotes: () => void;
 }
 
 const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
@@ -25,6 +28,7 @@ const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
   { id: "arrow", label: "Arrow", hint: "A", icon: <path d="M4 20L20 4M20 4h-7M20 4v7" fill="none" strokeWidth="1.6" /> },
   { id: "text", label: "Text", hint: "T", icon: <path d="M5 5h14M12 5v14" fill="none" strokeWidth="1.8" /> },
   { id: "note", label: "Sticky note", hint: "N", icon: <path d="M5 4h14v10l-5 6H5z" fill="none" strokeWidth="1.6" /> },
+  { id: "comment", label: "Comment", hint: "C", icon: <path d="M4 5h16v11H9l-5 4z" fill="none" strokeWidth="1.6" /> },
 ];
 
 const SWATCHES = ["#111827", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#ffffff"];
@@ -43,7 +47,7 @@ export default function Toolbar(p: Props) {
         </button>
       ))}
 
-      <button className="tool-btn" title="Import image / video / audio" onClick={p.onImportMedia}>
+      <button className="tool-btn" title="Import image, video, audio, PDF or 3D model" onClick={p.onImportMedia}>
         <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.6">
           <rect x="3" y="5" width="18" height="14" rx="2" />
           <circle cx="8.5" cy="10" r="1.6" fill="currentColor" stroke="none" />
@@ -76,6 +80,19 @@ export default function Toolbar(p: Props) {
       </button>
       <button className="tool-btn" title="Zoom to fit" onClick={p.onZoomFit}>
         <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+      </button>
+
+      <div className="tool-divider" />
+
+      <button
+        className={"tool-btn notes-btn" + (p.notesOpen ? " active" : "")}
+        title="All notes on this board"
+        onClick={p.onToggleNotes}
+      >
+        <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.6">
+          <path d="M4 5h16v11H9l-5 4z" /><path d="M8 9h8M8 12h5" />
+        </svg>
+        {p.noteCount > 0 && <span className="notes-count">{p.noteCount}</span>}
       </button>
     </div>
   );

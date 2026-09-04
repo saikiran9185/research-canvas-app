@@ -1,4 +1,6 @@
 import type { DirEntry } from "./storage";
+import type { Identity } from "./annotations";
+import type { Theme } from "./theme";
 
 interface Props {
   workspace: string;
@@ -13,6 +15,10 @@ interface Props {
   onChooseWorkspace: () => void;
   onDelete: (entry: DirEntry) => void;
   onRevealInFinder: () => void;
+  me: Identity;
+  onRenameMe: () => void;
+  theme: Theme;
+  onSetTheme: (t: Theme) => void;
 }
 
 export default function Sidebar(p: Props) {
@@ -64,6 +70,23 @@ export default function Sidebar(p: Props) {
       </div>
 
       <div className="sidebar-foot">
+        <div className="theme-switch" role="group" aria-label="Appearance">
+          {(["system", "light", "dark"] as Theme[]).map((t) => (
+            <button
+              key={t}
+              className={p.theme === t ? "active" : ""}
+              onClick={() => p.onSetTheme(t)}
+              title={t === "system" ? "Follow the system appearance" : `Always ${t}`}
+            >{t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}</button>
+          ))}
+        </div>
+        {/* Identity is local and self-declared — it is only a label on your
+            notes so collaborators know who wrote what. No account anywhere. */}
+        <button className="whoami" onClick={p.onRenameMe} title="Change the name shown on your notes">
+          <span className="dot" style={{ background: p.me.color }} />
+          <span className="whoami-name">{p.me.name}</span>
+          <span className="whoami-edit">edit</span>
+        </button>
         <button className="ghost-btn wide" onClick={p.onRevealInFinder}>Reveal folder in Finder</button>
       </div>
     </aside>

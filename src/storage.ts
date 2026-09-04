@@ -1,6 +1,7 @@
 // Thin wrappers around the Rust file-system commands + dialog pickers.
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import type { MediaKind } from "./types";
 
 export interface DirEntry {
   name: string;
@@ -21,6 +22,11 @@ export const storage = {
   deletePath: (path: string) => invoke<void>("delete_path", { path }),
   renamePath: (from: string, to: string) =>
     invoke<void>("rename_path", { from, to }),
+  // Content-addressed import: the same file imported twice is stored once.
+  importMediaHashed: (workspace: string, src: string) =>
+    invoke<string>("import_media_hashed", { workspace, src }),
+  writeBytes: (path: string, contents: Uint8Array) =>
+    invoke<void>("write_file_bytes", { path, contents: Array.from(contents) }),
 };
 
 // Turn an absolute disk path into a URL the webview can load (asset protocol).
@@ -42,9 +48,7 @@ export async function pickMediaFiles(): Promise<string[]> {
       {
         name: "Media",
         extensions: [
-          "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp",
-          "mp4", "mov", "webm", "m4v",
-          "mp3", "wav", "m4a", "aac", "ogg",
+          ...IMAGE_EXT, ...VIDEO_EXT, ...AUDIO_EXT, ...PDF_EXT, ...MODEL_EXT,
         ],
       },
     ],
@@ -53,10 +57,65 @@ export async function pickMediaFiles(): Promise<string[]> {
   return Array.isArray(res) ? res : [res];
 }
 
-export function mediaKind(name: string): "image" | "video" | "audio" | null {
+// Every format the canvas accepts. Images cover the common web-safe set plus
+// the ones designers actually hand over (heic/tiff/avif render if the webview
+// can decode them; they still import and export either way).
+export const IMAGE_EXT = [
+  "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "heic", "heif",
+  "tif", "tiff", "ico",
+];
+export const VIDEO_EXT = ["mp4", "mov", "webm", "m4v", "mkv", "avi"];
+export const AUDIO_EXT = ["mp3", "wav", "m4a", "aac", "ogg", "flac", "aiff"];
+export const PDF_EXT = ["pdf"];
+export const MODEL_EXT = ["glb", "gltf", "obj", "stl", "fbx", "usdz", "ply"];
+
+export function mediaKind(name: string): MediaKind | null {
   const ext = name.toLowerCase().split(".").pop() || "";
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext)) return "image";
-  if (["mp4", "mov", "webm", "m4v"].includes(ext)) return "video";
-  if (["mp3", "wav", "m4a", "aac", "ogg"].includes(ext)) return "audio";
+  if (IMAGE_EXT.includes(ext)) return "image";
+  if (VIDEO_EXT.includes(ext)) return "video";
+  if (AUDIO_EXT.includes(ext)) return "audio";
+  if (PDF_EXT.includes(ext)) return "pdf";
+  if (MODEL_EXT.includes(ext)) return "model";
   return null;
+}
+
+/** Default card size on the canvas for each kind of medium. */
+export function defaultSize(kind: MediaKind): { w: number; h: number } {
+  switch (kind) {
+    case "audio": return { w: 340, h: 96 };
+    case "video": return { w: 480, h: 300 };
+    case "pdf":   return { w: 420, h: 545 };
+    case "model": return { w: 360, h: 300 };
+    default:      return { w: 340, h: 260 };
+  }
+}
+
+/** Ask where to write an export, then write it. Returns the path, or null. */
+export async function saveTextAs(
+  defaultName: string,
+  contents: string,
+  ext: string,
+): Promise<string | null> {
+  const path = await save({
+    defaultPath: defaultName,
+    filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+  });
+  if (!path) return null;
+  await storage.writeText(path, contents);
+  return path;
+}
+
+/** Ask where to write a binary export (the board PDF), then write it. */
+export async function saveBytesAs(
+  defaultName: string,
+  bytes: Uint8Array,
+  ext: string,
+): Promise<string | null> {
+  const path = await save({
+    defaultPath: defaultName,
+    filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+  });
+  if (!path) return null;
+  await storage.writeBytes(path, bytes);
+  return path;
 }

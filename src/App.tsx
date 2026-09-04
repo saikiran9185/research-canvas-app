@@ -1,13 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
 import Sidebar from "./Sidebar";
-import { storage, pickFolder, pickMediaFiles, mediaKind, type DirEntry } from "./storage";
+import MediaViewer from "./MediaViewer";
+import CommentsPanel from "./CommentsPanel";
+import {
+  storage, pickFolder, pickMediaFiles, mediaKind, defaultSize,
+  saveTextAs, saveBytesAs, type DirEntry,
+} from "./storage";
+import { getTheme, applyTheme, type Theme } from "./theme";
+import {
+  getIdentity, saveIdentity, loadAnnotations, appendAnnotation,
+  annotationsMtime, newAnnotation, toMarkdown, type Identity,
+} from "./annotations";
 import { checkForUpdatesOnLaunch } from "./updater";
-import type { CanvasDoc, Item, Tool } from "./types";
-import { emptyDoc, uid } from "./types";
+import type { Annotation, CanvasDoc, Item, MediaItem, Tool } from "./types";
+import { emptyDoc, fmtTime, uid } from "./types";
 import "./App.css";
+
+/** How often to re-read the comment files, to pick up a collaborator's sync. */
+const SYNC_POLL_MS = 2500;
 
 export default function App() {
   const [workspace, setWorkspace] = useState<string>("");
@@ -26,11 +40,30 @@ export default function App() {
   const [size, setSize] = useState(3);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // --- annotation layer --------------------------------------------------
+  const [me, setMe] = useState<Identity>(() => getIdentity());
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [viewerItemId, setViewerItemId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const lastMtime = useRef(0);
+
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
   const [hist, setHist] = useState({ u: 0, r: 0 });
   const areaRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // --- appearance --------------------------------------------------------
+  const [theme, setThemeState] = useState<Theme>(() => getTheme());
+  useEffect(() => { applyTheme(theme); }, [theme]);
+
+  const say = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2600);
+  }, []);
 
   // --- boot: default workspace ------------------------------------------
   useEffect(() => {
@@ -94,19 +127,79 @@ export default function App() {
     setHist({ u: past.current.length, r: future.current.length });
   }, [scheduleSave]);
 
+  // --- annotations -------------------------------------------------------
+  const reloadAnnotations = useCallback(async (path: string) => {
+    try {
+      setAnnotations(await loadAnnotations(path));
+      lastMtime.current = await annotationsMtime(path);
+    } catch {
+      setAnnotations([]);
+    }
+  }, []);
+
+  // Poll the comment folder so notes a collaborator synced in just appear.
+  // Cheap: one mtime stat per author file, and a full re-read only on change.
+  useEffect(() => {
+    if (!canvasPath) return;
+    const id = window.setInterval(async () => {
+      try {
+        const m = await annotationsMtime(canvasPath);
+        if (m > lastMtime.current) {
+          lastMtime.current = m;
+          const fresh = await loadAnnotations(canvasPath);
+          setAnnotations((prev) => {
+            const added = fresh.filter((a) => a.authorId !== me.id && !prev.some((p) => p.id === a.id));
+            if (added.length) say(`${added.length} new note${added.length === 1 ? "" : "s"} from ${added[0].author}`);
+            return fresh;
+          });
+        }
+      } catch {
+        /* the folder may be mid-sync; the next tick will pick it up */
+      }
+    }, SYNC_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [canvasPath, me.id, say]);
+
+  /** Write an annotation and reflect it locally. Append-only — never rewrites. */
+  const persist = useCallback(async (a: Annotation) => {
+    if (!pathRef.current) return;
+    setAnnotations((prev) => {
+      const rest = prev.filter((p) => p.id !== a.id);
+      return a.deleted ? rest : [...rest, a].sort((x, y) => x.createdAt - y.createdAt);
+    });
+    try {
+      await appendAnnotation(pathRef.current, a);
+      lastMtime.current = await annotationsMtime(pathRef.current);
+    } catch (e) {
+      say(`Could not save that note: ${e}`);
+    }
+  }, [say]);
+
+  const addAnnotation = useCallback((a: Annotation) => { persist(a); }, [persist]);
+  const updateAnnotation = useCallback((a: Annotation) => {
+    persist({ ...a, updatedAt: Date.now() });
+  }, [persist]);
+  const deleteAnnotation = useCallback((a: Annotation) => {
+    // A delete is a tombstone line, so it propagates through a synced folder
+    // exactly like any other edit.
+    persist({ ...a, deleted: true, updatedAt: Date.now() });
+  }, [persist]);
+
   // --- file / folder ops -------------------------------------------------
-  async function openCanvas(path: string) {
+  const openCanvas = useCallback(async (path: string) => {
     const text = await storage.readText(path);
     try {
       const d = JSON.parse(text) as CanvasDoc;
       past.current = []; future.current = []; setHist({ u: 0, r: 0 });
       setSelectedId(null);
+      setViewerItemId(null);
       setCanvasPath(path);
       setDocState(d);
+      await reloadAnnotations(path);
     } catch {
       alert("Could not open canvas (invalid file).");
     }
-  }
+  }, [reloadAnnotations]);
 
   async function newCanvas() {
     const name = window.prompt("Name your canvas:", "Untitled");
@@ -120,6 +213,7 @@ export default function App() {
     past.current = []; future.current = []; setHist({ u: 0, r: 0 });
     setCanvasPath(path);
     setDocState(d);
+    setAnnotations([]);
     setSelectedId(null);
   }
 
@@ -133,7 +227,7 @@ export default function App() {
   async function deleteEntry(e: DirEntry) {
     if (!window.confirm(`Delete "${e.name}"? This cannot be undone.`)) return;
     await storage.deletePath(e.path);
-    if (e.path === canvasPath) { setCanvasPath(null); setDocState(null); }
+    if (e.path === canvasPath) { setCanvasPath(null); setDocState(null); setAnnotations([]); }
     await refresh(currentDir);
   }
 
@@ -144,31 +238,201 @@ export default function App() {
     setCurrentDir(dir);
     setCanvasPath(null);
     setDocState(null);
+    setAnnotations([]);
   }
 
   // --- media import ------------------------------------------------------
-  async function importMedia() {
-    if (!doc) { alert("Open or create a canvas first."); return; }
-    const files = await pickMediaFiles();
-    if (!files.length) return;
+  const addFiles = useCallback(async (files: string[], at?: { x: number; y: number }) => {
+    if (!docRef.current) { say("Open or create a canvas first."); return; }
     const rect = areaRef.current!.getBoundingClientRect();
-    const cam = docRef.current!.camera;
-    const cx = (rect.width / 2 - cam.x) / cam.zoom;
-    const cy = (rect.height / 2 - cam.y) / cam.zoom;
+    const cam = docRef.current.camera;
+    const cx = at ? at.x : (rect.width / 2 - cam.x) / cam.zoom;
+    const cy = at ? at.y : (rect.height / 2 - cam.y) / cam.zoom;
+
     const newItems: Item[] = [];
     let offset = 0;
+    let skipped = 0;
     for (const src of files) {
       const kind = mediaKind(src);
-      if (!kind) continue;
-      const dest = await storage.importMedia(workspace, src);
+      if (!kind) { skipped++; continue; }
+      const dest = await storage.importMediaHashed(workspace, src);
       const name = src.split("/").pop() || "file";
-      const w = kind === "audio" ? 320 : kind === "video" ? 480 : 320;
-      const h = kind === "audio" ? 92 : kind === "video" ? 280 : 240;
-      newItems.push({ id: uid(), type: "media", kind, src: dest, name, x: cx - w / 2 + offset, y: cy - h / 2 + offset, w, h });
+      const { w, h } = defaultSize(kind);
+      newItems.push({
+        id: uid(), type: "media", kind, src: dest, name,
+        x: cx - w / 2 + offset, y: cy - h / 2 + offset, w, h,
+        ...(kind === "pdf" ? { page: 1 } : {}),
+      } as MediaItem);
       offset += 28;
     }
-    if (newItems.length) setDoc({ ...docRef.current!, items: [...docRef.current!.items, ...newItems] });
+    if (newItems.length) {
+      setDoc({ ...docRef.current, items: [...docRef.current.items, ...newItems] });
+      say(`Added ${newItems.length} file${newItems.length === 1 ? "" : "s"}${skipped ? ` · skipped ${skipped} unsupported` : ""}`);
+    } else if (skipped) {
+      say(`${skipped} file${skipped === 1 ? "" : "s"} not supported yet`);
+    }
+  }, [setDoc, workspace, say]);
+
+  async function importMedia() {
+    const files = await pickMediaFiles();
+    if (files.length) await addFiles(files);
   }
+
+  // Drop files straight onto the canvas, landing where the cursor released.
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type !== "drop") return;
+        const rect = areaRef.current?.getBoundingClientRect();
+        const cam = docRef.current?.camera;
+        let at: { x: number; y: number } | undefined;
+        if (rect && cam) {
+          const { x, y } = event.payload.position;
+          at = { x: (x - rect.left - cam.x) / cam.zoom, y: (y - rect.top - cam.y) / cam.zoom };
+        }
+        addFiles(event.payload.paths, at);
+      })
+      .then((f) => { un = f; })
+      .catch(() => {/* not fatal — the import button still works */});
+    return () => un?.();
+  }, [addFiles]);
+
+  // --- viewer / panel ----------------------------------------------------
+  const viewerItem = useMemo(
+    () => (doc?.items.find((i) => i.id === viewerItemId && i.type === "media") as MediaItem | undefined),
+    [doc, viewerItemId],
+  );
+
+  const openViewer = useCallback((itemId: string, annotationId: string | null = null) => {
+    setViewerItemId(itemId);
+    setFocusId(annotationId);
+  }, []);
+
+  /** Clicking a note in the board panel jumps to exactly where it lives. */
+  const openAnnotation = useCallback((a: Annotation) => {
+    const target = doc?.items.find((i) => i.id === a.anchor.itemId);
+    if (target && target.type === "media") { openViewer(target.id, a.id); return; }
+    // A board-level note: select it and centre the camera on it instead.
+    setSelectedId(a.anchor.itemId);
+    if (a.anchor.worldX !== undefined && docRef.current && areaRef.current) {
+      const r = areaRef.current.getBoundingClientRect();
+      const z = docRef.current.camera.zoom;
+      setDoc({ ...docRef.current, camera: { zoom: z, x: r.width / 2 - a.anchor.worldX * z, y: r.height / 2 - (a.anchor.worldY ?? 0) * z } }, false);
+    }
+  }, [doc, openViewer, setDoc]);
+
+  /** The comment tool: click anywhere on the canvas to leave a note there. */
+  const addBoardComment = useCallback((world: { x: number; y: number }) => {
+    const text = window.prompt("Note on this spot:");
+    if (!text) return;
+    addAnnotation(newAnnotation(me, {
+      itemId: "board", x: 0, y: 0, w: 0, h: 0, worldX: world.x, worldY: world.y,
+    }, text));
+    setTool("select");
+  }, [addAnnotation, me]);
+
+  function renameMe() {
+    const name = window.prompt("Your name on this board (this is what collaborators see):", me.name);
+    if (!name) return;
+    const next = { ...me, name };
+    setMe(next);
+    saveIdentity(next);
+  }
+
+  // --- export ------------------------------------------------------------
+  const labelFor = useCallback((a: Annotation) => {
+    const item = doc?.items.find((i) => i.id === a.anchor.itemId);
+    const name = item && item.type === "media" ? item.name : "Canvas";
+    const bits = [name];
+    if (a.anchor.page !== undefined) bits.push(`page ${a.anchor.page}`);
+    if (a.anchor.time !== undefined) bits.push(fmtTime(a.anchor.time));
+    return bits.join(" · ");
+  }, [doc]);
+
+  async function exportNotes(format: "md" | "json" | "csv" | "pdf") {
+    if (!doc) return;
+
+    if (format === "pdf") {
+      // The heavy one: rasterises the board and every annotated frame.
+      setBusy("Preparing export…");
+      try {
+        // Loaded on demand: jsPDF and the renderer are only needed when someone
+        // actually exports, and they are a third of the bundle.
+        const { exportBoardPdf } = await import("./exportPdf");
+        const bytes = await exportBoardPdf(doc, annotations, {
+          includeBoard: true,
+          includeEvidence: true,
+          includeIndex: true,
+          onProgress: setBusy,
+        });
+        const path = await saveBytesAs(`${doc.name}.pdf`, bytes, "pdf");
+        say(path ? `Exported ${path.split("/").pop()}` : "Export cancelled");
+      } catch (e) {
+        say(`Export failed: ${e}`);
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
+
+    let body: string;
+    if (format === "md") {
+      body = toMarkdown(doc.name, annotations, labelFor);
+    } else if (format === "json") {
+      body = JSON.stringify({ board: doc.name, exported: new Date().toISOString(), annotations }, null, 2);
+    } else {
+      const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
+      body = ["file,page,timecode,author,resolved,note"]
+        .concat(annotations.map((a) => [
+          esc(labelFor(a).split(" · ")[0]),
+          a.anchor.page ?? "",
+          a.anchor.time !== undefined ? fmtTime(a.anchor.time) : "",
+          esc(a.author),
+          a.resolved ? "yes" : "no",
+          esc(a.text),
+        ].join(",")))
+        .join("\n");
+    }
+    const path = await saveTextAs(`${doc.name}-notes.${format}`, body, format);
+    if (path) say(`Exported to ${path.split("/").pop()}`);
+  }
+
+  // --- keyboard shortcuts -----------------------------------------------
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = (e.target as HTMLElement)?.tagName === "TEXTAREA" || (e.target as HTMLElement)?.tagName === "INPUT";
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (pathRef.current && docRef.current) storage.writeText(pathRef.current, JSON.stringify(docRef.current, null, 2));
+        return;
+      }
+      // The viewer owns the keyboard while it is open.
+      if (viewerItemId || typing || e.metaKey || e.ctrlKey) return;
+      const map: Record<string, Tool> = {
+        v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse",
+        a: "arrow", t: "text", n: "note", c: "comment",
+      };
+      const t = map[e.key.toLowerCase()];
+      if (t) setTool(t);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo, viewerItemId]);
+
+  const countsByItem = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of annotations) {
+      if (a.resolved) continue;
+      m.set(a.anchor.itemId, (m.get(a.anchor.itemId) ?? 0) + 1);
+    }
+    return m;
+  }, [annotations]);
 
   function zoomFit() {
     if (!doc || !areaRef.current) return;
@@ -191,29 +455,6 @@ export default function App() {
     setDoc({ ...doc, camera: { x, y, zoom } }, false);
   }
 
-  // --- keyboard shortcuts -----------------------------------------------
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement)?.tagName === "TEXTAREA" || (e.target as HTMLElement)?.tagName === "INPUT";
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        if (pathRef.current && docRef.current) storage.writeText(pathRef.current, JSON.stringify(docRef.current, null, 2));
-        return;
-      }
-      if (typing || e.metaKey || e.ctrlKey) return;
-      const map: Record<string, Tool> = { v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse", a: "arrow", t: "text", n: "note" };
-      const t = map[e.key.toLowerCase()];
-      if (t) setTool(t);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
-
   return (
     <div className="app">
       <Sidebar
@@ -229,6 +470,10 @@ export default function App() {
         onChooseWorkspace={chooseWorkspace}
         onDelete={deleteEntry}
         onRevealInFinder={() => revealItemInDir(currentDir).catch(() => {})}
+        me={me}
+        onRenameMe={renameMe}
+        theme={theme}
+        onSetTheme={setThemeState}
       />
 
       <div className="main">
@@ -241,12 +486,25 @@ export default function App() {
             onUndo={undo} onRedo={redo}
             canUndo={hist.u > 0} canRedo={hist.r > 0}
             onZoomFit={zoomFit}
+            notesOpen={panelOpen}
+            noteCount={annotations.filter((a) => !a.resolved).length}
+            onToggleNotes={() => setPanelOpen((v) => !v)}
           />
         )}
         <div className="canvas-area" ref={areaRef}>
           {doc ? (
             <>
-              <Canvas doc={doc} setDoc={setDoc} tool={tool} setTool={setTool} color={color} size={size} selectedId={selectedId} setSelectedId={setSelectedId} />
+              <Canvas
+                doc={doc} setDoc={setDoc}
+                tool={tool} setTool={setTool}
+                color={color} size={size}
+                selectedId={selectedId} setSelectedId={setSelectedId}
+                annotationCounts={countsByItem}
+                boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}
+                onOpenMedia={openViewer}
+                onBoardComment={addBoardComment}
+                onOpenAnnotation={openAnnotation}
+              />
               <div className="statusbar">
                 <span>{doc.name}</span>
                 <span>{Math.round(doc.camera.zoom * 100)}%</span>
@@ -255,12 +513,53 @@ export default function App() {
           ) : (
             <div className="welcome">
               <h1>Research Canvas</h1>
-              <p>An infinite canvas for your research. Pick a canvas from the left, or create one.</p>
+              <p>
+                An infinite canvas for research. Drop in images, video, audio or PDFs,
+                then pin a note to the exact frame, page or region you mean.
+              </p>
               <button className="cta" onClick={newCanvas}>+ New canvas</button>
             </div>
           )}
         </div>
       </div>
+
+      {doc && panelOpen && (
+        <CommentsPanel
+          doc={doc}
+          annotations={annotations}
+          me={me}
+          onOpen={openAnnotation}
+          onUpdate={updateAnnotation}
+          onDelete={deleteAnnotation}
+          onExport={exportNotes}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
+
+      {viewerItem && (
+        <MediaViewer
+          item={viewerItem}
+          annotations={annotations.filter((a) => a.anchor.itemId === viewerItem.id)}
+          me={me}
+          focusId={focusId}
+          onClose={() => { setViewerItemId(null); setFocusId(null); }}
+          onAdd={addAnnotation}
+          onUpdate={updateAnnotation}
+          onDelete={deleteAnnotation}
+        />
+      )}
+
+      {busy && (
+        <div className="busy-overlay">
+          <div className="busy-card">
+            <div className="busy-spinner" />
+            <div>{busy}</div>
+            <small>Rendering every frame at full quality — this can take a moment.</small>
+          </div>
+        </div>
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

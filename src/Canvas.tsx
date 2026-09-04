@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import type { CanvasDoc, Item, Tool, ShapeItem } from "./types";
+import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem } from "./types";
 import { uid } from "./types";
 import { fileUrl } from "./storage";
+import { renderPage } from "./pdf";
 
 interface Props {
   doc: CanvasDoc;
@@ -13,6 +14,13 @@ interface Props {
   size: number;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
+  /** Open (unresolved) note count per item, for the badge on each card. */
+  annotationCounts: Map<string, number>;
+  /** Notes dropped straight onto the canvas rather than onto a file. */
+  boardNotes: Annotation[];
+  onOpenMedia: (itemId: string) => void;
+  onBoardComment: (world: { x: number; y: number }) => void;
+  onOpenAnnotation: (a: Annotation) => void;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -56,6 +64,7 @@ function translate(item: Item, dx: number, dy: number): Item {
 // ---- component ----------------------------------------------------------
 export default function Canvas({
   doc, setDoc, tool, setTool, color, size, selectedId, setSelectedId,
+  annotationCounts, boardNotes, onOpenMedia, onBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const docRef = useRef(doc);
@@ -147,6 +156,10 @@ export default function Canvas({
         setSelectedId(id); setEditingId(id); setTool("select");
         break;
       }
+      case "comment": {
+        onBoardComment(p);
+        break;
+      }
       case "note": {
         const id = uid();
         setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "note", x: p.x, y: p.y, w: 180, h: 180, text: "", color: "#ffe27a" }] });
@@ -231,6 +244,13 @@ export default function Canvas({
 
   const cursor = spaceDown || tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
 
+  /** A media card is a door: double-click opens it in the focus viewer. */
+  function openMedia(e: React.MouseEvent, it: Item) {
+    if (it.type !== "media") return;
+    e.stopPropagation();
+    onOpenMedia(it.id);
+  }
+
   return (
     <div
       ref={hostRef}
@@ -290,7 +310,7 @@ export default function Canvas({
                 </div>
               )}
               {it.type === "media" && (
-                <div className="media">
+                <div className="media" onDoubleClick={(e) => openMedia(e, it)}>
                   {it.kind === "image" && <img src={fileUrl(it.src)} draggable={false} alt={it.name} />}
                   {it.kind === "video" && <video src={fileUrl(it.src)} controls onPointerDown={(e) => e.stopPropagation()} />}
                   {it.kind === "audio" && (
@@ -299,6 +319,29 @@ export default function Canvas({
                       <audio src={fileUrl(it.src)} controls />
                     </div>
                   )}
+                  {it.kind === "pdf" && <PdfThumb item={it as MediaItem} />}
+                  {it.kind === "model" && (
+                    <div className="model-card">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+                        <path d="M12 2l9 5v10l-9 5-9-5V7z" /><path d="M12 12l9-5M12 12v10M12 12L3 7" />
+                      </svg>
+                      <div className="model-name">{it.name}</div>
+                    </div>
+                  )}
+                  <button
+                    className="media-open"
+                    title="Open and annotate"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => openMedia(e, it)}
+                  >Annotate</button>
+                  {!!annotationCounts.get(it.id) && (
+                    <button
+                      className="media-badge"
+                      title={`${annotationCounts.get(it.id)} open note(s)`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => openMedia(e, it)}
+                    >{annotationCounts.get(it.id)}</button>
+                  )}
                 </div>
               )}
               {selected && it.type !== "text" && <div className="resize-handle" onPointerDown={(e) => handlePointerDown(e, it)} />}
@@ -306,6 +349,20 @@ export default function Canvas({
             </div>
           );
         })}
+
+        {/* comments dropped straight onto the canvas */}
+        {boardNotes.map((a) => (
+          <button
+            key={a.id}
+            className="board-pin"
+            style={{ left: a.anchor.worldX ?? 0, top: a.anchor.worldY ?? 0, background: a.color }}
+            title={`${a.author}: ${a.text}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onOpenAnnotation(a)}
+          >
+            <span className="board-pin-text">{a.text}</span>
+          </button>
+        ))}
 
         {/* selection outline for vector items */}
         {selectedId && vectors.find((v) => v.id === selectedId) && (() => {
@@ -351,4 +408,23 @@ function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: 
       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={Math.max(item.size, 14)} />
     </g>
   );
+}
+
+
+/** First-page preview of a PDF card, rendered once and cached by pdf.ts. */
+function PdfThumb({ item }: { item: MediaItem }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    renderPage(item.src, item.page ?? 1, 520)
+      .then((r) => { if (alive) setUrl(r.url); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [item.src, item.page]);
+
+  if (failed) return <div className="pdf-card pdf-failed">{item.name}</div>;
+  if (!url) return <div className="pdf-card">Loading {item.name}…</div>;
+  return <img className="pdf-page" src={url} alt={item.name} draggable={false} />;
 }

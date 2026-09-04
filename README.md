@@ -1,20 +1,49 @@
 # Research Canvas
 
-A native **infinite canvas for research** — draw, drop any media, take notes, and
-organize your thinking across folders of boards. Built as a **Tauri** desktop app
+A native **infinite canvas for research** — drop in any medium, then pin a note to
+the exact frame, page or region you mean. Built as a **Tauri** desktop app
 (Rust + React) with a fully custom canvas engine.
 
-> Personal-first: your boards live as plain `.canvas` files on disk. Real-time
-> collaboration is a planned later phase.
+> Free, open source, and offline. No account, no server, no company in the
+> middle. Your boards are plain files in a folder you choose.
 
 ## Features
 
+### The canvas
 - **Infinite canvas** — pan (scroll), zoom (⌘/pinch), dotted grid
-- **Custom tools** — select, pan, freehand pen, rectangle, ellipse, arrow, text, sticky notes
-- **Media** — import images, video, and audio; previewed/played inline
+- **Tools** — select, pan, freehand pen, rectangle, ellipse, arrow, text, sticky notes, comment
+- **Any medium** — images (incl. avif/heic/tiff), video, audio, **PDF**, and 3D file cards
+- **Drag files straight onto the canvas**, or import from the toolbar
 - **Move & resize**, undo/redo (⌘Z / ⌘⇧Z), zoom-to-fit
-- **Folders on disk** — boards are `.canvas` files under `~/Documents/Research Canvas/`,
-  browsable both in the app sidebar and in Finder
+- **Light / dark / follow-the-system** appearance
+
+### Annotation — the point of the whole thing
+Open any file on the board (double-click, or *Annotate*) to get a focus view:
+
+- **Video** — play, pause, step a frame at a time, and pin a comment to a
+  timecode. Every note shows as a tick on the timeline; click it to jump there.
+- **PDF** — page through the document and drag a box over a paragraph to
+  highlight it and attach a note. Pages carrying notes are marked in the pager.
+- **Images** — highlight a region, drop a pin, or scribble on it freehand.
+- **Audio** — pin a comment to a moment.
+- **All in one place** — a board-wide notes panel, searchable, filterable by
+  author, and grouped by the file each note belongs to.
+
+### Sharing
+- **Export the whole board as a PDF** — the canvas, then a page per annotated
+  moment with the highlight drawn onto the frame, then an index of every note.
+  Someone with no app and no internet can still see exactly what was said about
+  what.
+- **Export notes** as Markdown, CSV or JSON.
+
+### Collaboration without a server
+Comments live outside the board file: one **append-only `.jsonl` per author**.
+Share the folder however you like — Syncthing, git, Dropbox, a USB stick — and
+several people can annotate the same board with **nothing to merge and nothing
+to lose**. Notes a collaborator syncs in appear within a couple of seconds.
+
+See **[docs/collaboration.md](docs/collaboration.md)** for how and why.
+
 - **Auto-save** as you work
 - **Self-updating** — installed apps check GitHub Releases and update themselves
 
@@ -63,11 +92,42 @@ updates itself — verifying the signature against the public key baked into
 > For distribution without a Gatekeeper warning, add an Apple Developer ID and
 > notarization (separate from the updater signature). Not required for updates to work.
 
+## Keyboard
+
+| | |
+|---|---|
+| `V` `H` `P` `R` `O` `A` `T` `N` `C` | select · pan · pen · rect · ellipse · arrow · text · note · comment |
+| `Space` (hold) | pan from any tool |
+| `⌘Z` / `⌘⇧Z` | undo / redo |
+| **In the focus view** | |
+| `Space` | play / pause |
+| `←` `→` | step one frame (or turn the PDF page) |
+| `⇧←` `⇧→` | step one second |
+| `C` | comment at this moment |
+| `⌘↵` | post the comment |
+| `Esc` | close |
+
 ## Project layout
 
-- `src/` — React frontend: `Canvas.tsx` (engine), `Toolbar.tsx`, `Sidebar.tsx`, `App.tsx`, `updater.ts`
-- `src-tauri/src/lib.rs` — Rust file-system commands + plugin setup
-- `src-tauri/tauri.conf.json` — app config, asset protocol, updater endpoint
+- `src/`
+  - `Canvas.tsx` — the canvas engine; `Toolbar.tsx`, `Sidebar.tsx`, `App.tsx`
+  - `types.ts` — the board and annotation data model
+  - `annotations.ts` — the annotation store and the conflict-free merge
+  - `MediaViewer.tsx` — the focus view (video timeline, PDF pages, highlights)
+  - `CommentsPanel.tsx` — every note on the board, in one list
+  - `pdf.ts` — pdf.js wrapper; `render.ts` — rasterising the board
+  - `exportPdf.ts` — the shareable PDF; `theme.ts` — light/dark
+- `src-tauri/src/lib.rs` — Rust file-system + annotation-storage commands
+- `src-tauri/src/tests.rs` — storage tests (`cargo test`)
+- `test/merge.test.mjs` — merge/convergence tests (`npm test`)
+- `docs/collaboration.md` — how multi-user works without a server
+
+## Tests
+
+```bash
+npm test                       # annotation merge + convergence
+cd src-tauri && cargo test     # storage layer
+```
 
 ## Contributing & community
 
