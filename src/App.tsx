@@ -41,7 +41,7 @@ export default function App() {
   const [color, setColor] = useState<string>(() => (isDark(getTheme()) ? INK.dark : INK.light));
   const [size, setSize] = useState(3);
   const [fill, setFill] = useState("none");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // --- annotation layer --------------------------------------------------
   const [me, setMe] = useState<Identity>(() => getIdentity());
@@ -216,7 +216,7 @@ export default function App() {
     try {
       const d = JSON.parse(text) as CanvasDoc;
       past.current = []; future.current = []; setHist({ u: 0, r: 0 });
-      setSelectedId(null);
+      setSelectedIds(new Set());
       setViewerItemId(null);
       setCanvasPath(path);
       setDocState(d);
@@ -243,7 +243,7 @@ export default function App() {
     setCanvasPath(path);
     setDocState(d);
     setAnnotations([]);
-    setSelectedId(null);
+    setSelectedIds(new Set());
     setLibraryOpen(false);
   }
 
@@ -358,7 +358,7 @@ export default function App() {
     const target = doc?.items.find((i) => i.id === a.anchor.itemId);
     if (target && target.type === "media") { openViewer(target.id, a.id); return; }
     // A board-level note: select it and centre the camera on it instead.
-    setSelectedId(a.anchor.itemId);
+    setSelectedIds(new Set([a.anchor.itemId]));
     if (a.anchor.worldX !== undefined && docRef.current && areaRef.current) {
       const r = areaRef.current.getBoundingClientRect();
       const z = docRef.current.camera.zoom;
@@ -396,7 +396,7 @@ export default function App() {
     setDoc({ ...d, items: [...d.items, excerpt] });
     setViewerItemId(null);
     setFocusId(null);
-    setSelectedId(excerpt.id);
+    setSelectedIds(new Set([excerpt.id]));
     say(`Added to canvas — click ↩ ${e.sourceName} to jump back`);
   }, [setDoc, me.color, say]);
 
@@ -671,7 +671,7 @@ export default function App() {
                 doc={doc} setDoc={setDoc}
                 tool={tool} setTool={setTool}
                 color={color} size={size} fill={fill}
-                selectedId={selectedId} setSelectedId={setSelectedId}
+                selectedIds={selectedIds} setSelectedIds={setSelectedIds}
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}
                 onOpenMedia={openViewer}
