@@ -192,8 +192,8 @@ body {
 .block.selected { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 
 .text-view, .text-edit {
-  width: 100%; font-family: inherit; line-height: 1.35;
-  white-space: pre-wrap; word-break: break-word;
+  width: 100%; font-family: inherit; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal;
 }
 .text-edit {
   border: none; background: var(--edit-bg); resize: none; outline: none;
@@ -607,7 +607,13 @@ body {
   background: var(--bg); color: var(--text);
 }
 .composer-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; }
-.cta.small { padding: 5px 11px; font-size: 12px; border-radius: 8px; }
+.cta.small {
+  /* .cta's margin-top belongs to the welcome screen it was written for. In a
+     row of header buttons it just pushed this one out of line. */
+  margin-top: 0; padding: 5px 11px; font-size: var(--text-sm); border-radius: var(--r-md);
+}
+/* Everything in the header row sits on one baseline, whatever it is. */
+.lib-head-actions { display: flex; align-items: center; gap: var(--s-2); }
 
 /* ---- transport ---- */
 .transport {
@@ -1082,21 +1088,25 @@ body {
 /* A pasted link. Not an embed — a card that says where it goes and opens in
    the real browser when clicked. */
 .link-card {
-  display: flex; flex-direction: column; justify-content: center; gap: 2px;
-  width: 100%; height: 100%; padding: var(--s-3);
+  /* Laid out from the top rather than centred, and spaced so three lines fit
+     the card they are given. Centred content in a too-short box with overflow
+     hidden clips from BOTH ends, which is how a link ended up showing half a
+     line of its own URL. */
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 1px;
+  width: 100%; height: 100%; padding: var(--s-2) var(--s-3);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
   box-shadow: var(--shadow-sm); text-decoration: none; color: var(--text);
   overflow: hidden; cursor: pointer; pointer-events: auto;
 }
 .link-card:hover { border-color: var(--accent); }
-.link-card-kind { font-size: var(--text-sm); color: var(--muted); }
+.link-card-kind { font-size: var(--text-xs); color: var(--muted); line-height: 1.2; }
 .link-card.is-video .link-card-kind { color: var(--accent); }
 .link-card-label {
-  font-size: var(--text-md); font-weight: 500;
+  font-size: var(--text-md); font-weight: 500; line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .link-card-url {
-  font-size: var(--text-xs); color: var(--muted);
+  font-size: var(--text-xs); color: var(--muted); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 

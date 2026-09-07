@@ -307,14 +307,20 @@ export default function Canvas({
             // insult repeated every time.
             ...(youtubeId(what.url)
               ? { x: at.x - 240, y: at.y - 135, w: 480, h: 270 }
-              : { x: at.x - 150, y: at.y - 34, w: 300, h: 68 }),
+              : { x: at.x - 170, y: at.y - 44, w: 340, h: 88 }),
             url: what.url, label: what.label,
             media: isVideoUrl(new URL(what.url)) ? "video" : "page",
           }
-        : {
-            id: uid(), type: "text", x: at.x, y: at.y - 12, w: 320,
-            text: what.text, color: inkToStore, fontSize: 20,
-          };
+        : (() => {
+            // Width from how much there is. A fixed column turns a sentence
+            // into a ribbon and a long passage into a tower you have to zoom
+            // out to read the shape of.
+            const w = what.text.length > 900 ? 720 : what.text.length > 220 ? 520 : 360;
+            return {
+              id: uid(), type: "text", x: at.x - w / 2, y: at.y - 12, w,
+              text: what.text, color: inkToStore, fontSize,
+            } as Item;
+          })();
       setDoc({ ...d, items: [...d.items, made] });
       select(new Set([made.id]));
     };
