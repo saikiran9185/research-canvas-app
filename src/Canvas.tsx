@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { shortcutsAllowed } from "./editorScope";
 import type React from "react";
 import { useLatest } from "./useLatest";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
@@ -6,6 +7,9 @@ import { fmtTime, uid } from "./types";
 import { inkOutline, normRect, polylinePath, ShapeView } from "./canvas/items";
 import { useCanvasCommands } from "./canvas/useCanvasCommands";
 import { InlineEditor } from "./canvas/InlineEditor";
+import { classifyPaste, isVideoUrl, nameForPastedImage } from "./paste";
+import { mediaKind } from "./storage";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   DRAG_SLOP_PX, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
   MIN_ITEM_SIZE, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
@@ -46,6 +50,8 @@ interface Props {
   /** Follow an excerpt's backlink to where it was taken from. */
   onOpenExcerptSource: (ex: ExcerptItem) => void;
   /** Commit a new note dropped on the board. Empty text is discarded. */
+  /** Files pasted from the clipboard, which have bytes but no path. */
+  onPasteFiles: (files: File[], at: Point) => void;
   onBoardComment: (world: { x: number; y: number }, text: string) => void;
   /** Edit an existing bubble in place. Empty text deletes it. */
   onEditBoardComment: (a: Annotation, text: string) => void;
@@ -71,7 +77,7 @@ type Drag =
 export default function Canvas({
   doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
-  onBoardComment, onEditBoardComment, onOpenAnnotation,
+  onPasteFiles, onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const docRef = useLatest(doc);
@@ -105,6 +111,9 @@ export default function Canvas({
   const [dragging, setDragging] = useState(false);
 
   const drag = useRef<Drag | null>(null);
+  /** Last pointer position in screen space, so a paste lands under the cursor
+   *  rather than always in the middle of the view. */
+  const pointer = useRef<Point | null>(null);
   const clipboard = useRef<Item[]>([]);
   /** Last click, for detecting a double-click ourselves. */
   const lastClick = useRef<{ id: string; at: number }>({ id: "", at: 0 });
@@ -234,6 +243,57 @@ export default function Canvas({
     docRef, selRef, hostRef, measured, setDoc, setSelectedIds,
     setEditingId, setSpaceDown, beginEditing, clipboard,
   });
+
+  // --- paste ---------------------------------------------------------------
+  // Research arrives by clipboard as much as by drag: you find something in a
+  // browser, copy it, and want it on the board. What arrives decides what is
+  // made of it — see paste.ts, where that decision is testable.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (!shortcutsAllowed(e as unknown as KeyboardEvent)) return; // typing
+      const data = e.clipboardData;
+      if (!data) return;
+
+      const files = Array.from(data.files);
+      const text = data.getData("text/plain") ?? "";
+      const what = classifyPaste(files, text, (n) => !!mediaKind(n));
+      if (what.kind === "nothing") return;
+
+      // Paste lands where the pointer is, or in the middle of the view.
+      const host = hostRef.current;
+      const r = host?.getBoundingClientRect();
+      const at = toWorld(
+        pointer.current ?? { x: (r?.width ?? 0) / 2, y: (r?.height ?? 0) / 2 },
+        docRef.current.camera,
+      );
+
+      if (what.kind === "files") {
+        e.preventDefault();
+        onPasteFiles(
+          what.files.map((f) => (f.name ? f : new File([f], nameForPastedImage(f.type), { type: f.type }))),
+          at,
+        );
+        return;
+      }
+
+      e.preventDefault();
+      const d = docRef.current;
+      const made: Item = what.kind === "link"
+        ? {
+            id: uid(), type: "link", x: at.x - 150, y: at.y - 34, w: 300, h: 68,
+            url: what.url, label: what.label,
+            media: isVideoUrl(new URL(what.url)) ? "video" : "page",
+          }
+        : {
+            id: uid(), type: "text", x: at.x, y: at.y - 12, w: 320,
+            text: what.text, color: inkToStore, fontSize: 20,
+          };
+      setDoc({ ...d, items: [...d.items, made] });
+      select(new Set([made.id]));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [onPasteFiles, setDoc, select, inkToStore]);
 
   // --- pointer -----------------------------------------------------------
   function onHostPointerDown(e: React.PointerEvent) {
@@ -490,7 +550,8 @@ export default function Canvas({
   const items = ordered(draft ? [...doc.items, draft] : doc.items);
   const vectors = items.filter((i) => i.type === "stroke" || i.type === "shape");
   const blocks = items.filter((i) =>
-    i.type === "text" || i.type === "note" || i.type === "media" || i.type === "excerpt");
+    i.type === "text" || i.type === "note" || i.type === "media" ||
+    i.type === "excerpt" || i.type === "link");
 
   const cursor = hoverCursor
     ?? (spaceDown || tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair");
@@ -593,6 +654,25 @@ export default function Canvas({
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
                   )}
                 </div>
+              )}
+              {it.type === "link" && (
+                <a
+                  className={"link-card" + (it.media === "video" ? " is-video" : "")}
+                  href={it.url}
+                  title={it.url}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    // Never navigate the app window itself — a board is not a
+                    // browser, and a link that replaced it would take the
+                    // running app with it. Hand it to the real browser.
+                    e.preventDefault();
+                    openUrl(it.url).catch(() => {});
+                  }}
+                >
+                  <span className="link-card-kind">{it.media === "video" ? "▶" : "↗"}</span>
+                  <span className="link-card-label">{it.label}</span>
+                  <span className="link-card-url">{it.url}</span>
+                </a>
               )}
               {it.type === "excerpt" && (
                 <div className="excerpt" style={{ borderColor: it.color }}>

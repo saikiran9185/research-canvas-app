@@ -1077,3 +1077,25 @@ body {
 .board-back svg { width: 15px; height: 15px; }
 .board-name { color: var(--muted); padding-right: var(--s-2); max-width: 32ch;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* A pasted link. Not an embed — a card that says where it goes and opens in
+   the real browser when clicked. */
+.link-card {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  width: 100%; height: 100%; padding: var(--s-3);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm); text-decoration: none; color: var(--text);
+  overflow: hidden; cursor: pointer; pointer-events: auto;
+}
+.link-card:hover { border-color: var(--accent); }
+.link-card-kind { font-size: var(--text-sm); color: var(--muted); }
+.link-card.is-video .link-card-kind { color: var(--accent); }
+.link-card-label {
+  font-size: var(--text-md); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.link-card-url {
+  font-size: var(--text-xs); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

@@ -148,7 +148,27 @@ export interface MediaItem extends Base {
   pageCount?: number; // pdf: filled in once rendered
 }
 
-export type Item = StrokeItem | ShapeItem | TextItem | NoteItem | MediaItem | ExcerptItem;
+/**
+ * A link pasted onto the board.
+ *
+ * Research arrives as links at least as often as it arrives as files, and a
+ * URL dropped in as plain text is unreadable and unclickable. This keeps the
+ * address, a short readable label, and whether it points at something that
+ * plays rather than something that reads.
+ */
+export interface LinkItem extends Base {
+  type: "link";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  url: string;
+  label: string;
+  /** Only affects how the card is labelled; nothing is embedded. */
+  media: "page" | "video";
+}
+
+export type Item = StrokeItem | ShapeItem | TextItem | NoteItem | MediaItem | ExcerptItem | LinkItem;
 
 export interface CanvasDoc {
   version: 1;

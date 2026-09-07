@@ -352,6 +352,43 @@ export default function App() {
   }
 
   // --- media import ------------------------------------------------------
+  /**
+   * Files that arrived on the clipboard rather than by drag.
+   *
+   * A dropped file has a path the backend can copy; a pasted image is bytes in
+   * memory with no path at all, so it has to be written into the workspace
+   * before it can be an item on the board.
+   */
+  const addPastedFiles = useCallback(async (files: File[], at: { x: number; y: number }) => {
+    if (!docRef.current) { say("Open or create a canvas first."); return; }
+    if (!workspace) { say("Still starting up — try that again in a moment."); return; }
+
+    const made: Item[] = [];
+    let offset = 0;
+    for (const file of files) {
+      const kind = mediaKind(file.name);
+      if (!kind) continue;
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const dest = `${workspace}/.assets/${Date.now()}-${file.name}`;
+        await storage.writeBytes(dest, bytes);
+        const { w, h } = defaultSize(kind);
+        made.push({
+          id: uid(), type: "media", kind, src: dest, name: file.name,
+          x: at.x - w / 2 + offset, y: at.y - h / 2 + offset, w, h,
+          ...(kind === "pdf" ? { page: 1 } : {}),
+        } as MediaItem);
+        offset += 28;
+      } catch (e) {
+        say(`Could not paste ${file.name}: ${e}`);
+      }
+    }
+    if (made.length) {
+      setDoc({ ...docRef.current, items: [...docRef.current.items, ...made] });
+      say(`Pasted ${made.length} file${made.length === 1 ? "" : "s"}`);
+    }
+  }, [workspace, setDoc, say]);
+
   const addFiles = useCallback(async (files: string[], at?: { x: number; y: number }) => {
     if (!docRef.current) { say("Open or create a canvas first."); return; }
     // Guard the same invariant the backend enforces: no workspace, no import.
@@ -771,6 +808,7 @@ export default function App() {
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}
                 onOpenMedia={openViewer}
                 onOpenExcerptSource={openExcerptSource}
+                onPasteFiles={addPastedFiles}
                 onBoardComment={addBoardComment}
                 onEditBoardComment={editBoardComment}
                 onOpenAnnotation={openAnnotation}
