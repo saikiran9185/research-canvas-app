@@ -28,15 +28,41 @@ export const toScreen = (w: Point, cam: Camera): Point => ({
   y: w.y * cam.zoom + cam.y,
 });
 
-/** Text height is a guess until the DOM measures it; assume wrapped lines. */
-function textHeight(text: string, w: number, fontSize: number): number {
-  const perLine = Math.max(1, Math.floor(w / (fontSize * 0.55)));
+/**
+ * A fallback height for text nobody has measured yet.
+ *
+ * It is only ever a guess, and it is a guess with a bias built into it: the
+ * old version divided the box width by `fontSize * 0.55` to get characters per
+ * line, and 0.55 is the average advance width of *Latin* lowercase. Telugu,
+ * Devanagari and CJK are all wider than that, and Telugu additionally stacks
+ * matras above and below the baseline — so the guess ran short in both
+ * directions and the selection box around a paragraph enclosed part of it.
+ *
+ * There is no width ratio that is right for every script, so this no longer
+ * pretends to know one. It assumes a wide glyph and generous line spacing,
+ * because a box slightly too large is a cosmetic flaw while a box too small
+ * makes text unselectable at its edges. Anything on screen gets measured for
+ * real (see `measured` below) and this is used only until that happens.
+ */
+export function estimateTextHeight(text: string, w: number, fontSize: number): number {
+  const CONSERVATIVE_ADVANCE = 0.85; // wide enough for Telugu and CJK alike
+  const LINE_HEIGHT = 1.5;           // room for stacked marks above and below
+  const perLine = Math.max(1, Math.floor(w / (fontSize * CONSERVATIVE_ADVANCE)));
   const lines = text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
-  return Math.max(fontSize * 1.35, lines * fontSize * 1.35);
+  return Math.max(fontSize * LINE_HEIGHT, lines * fontSize * LINE_HEIGHT);
 }
 
+/**
+ * Heights measured from what the font engine actually rendered, in world
+ * units, keyed by item id.
+ *
+ * Passing this in is what makes the box around a paragraph correct for any
+ * script rather than for the one whose metrics happened to be hardcoded.
+ */
+export type Measured = ReadonlyMap<string, number>;
+
 /** The world-space box an item occupies. */
-export function bbox(item: Item): Rect {
+export function bbox(item: Item, measured?: Measured): Rect {
   if (item.type === "stroke") {
     const p = item.points;
     // An empty or single-point stroke used to return an Infinity box, which
@@ -60,16 +86,17 @@ export function bbox(item: Item): Rect {
     };
   }
   if (item.type === "text") {
-    return { x: item.x, y: item.y, w: item.w, h: textHeight(item.text, item.w, item.fontSize) };
+    const h = measured?.get(item.id) ?? estimateTextHeight(item.text, item.w, item.fontSize);
+    return { x: item.x, y: item.y, w: item.w, h };
   }
   return { x: item.x, y: item.y, w: item.w, h: item.h };
 }
 
-export function union(items: Item[]): Rect | null {
+export function union(items: Item[], measured?: Measured): Rect | null {
   if (!items.length) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const it of items) {
-    const b = bbox(it);
+    const b = bbox(it, measured);
     if (b.x < minX) minX = b.x;
     if (b.y < minY) minY = b.y;
     if (b.x + b.w > maxX) maxX = b.x + b.w;
@@ -141,7 +168,7 @@ export function resizeRect(r: Rect, h: HandleId, dx: number, dy: number, min: nu
  * from *any* handle — including pen strokes, which previously could not be
  * resized at all because there was nothing to scale but their points.
  */
-export function fitTo(item: Item, from: Rect, to: Rect): Item {
+export function fitTo(item: Item, from: Rect, to: Rect, measured?: Measured): Item {
   const sx = from.w === 0 ? 1 : to.w / from.w;
   const sy = from.h === 0 ? 1 : to.h / from.h;
   const mapX = (x: number) => to.x + (x - from.x) * sx;
@@ -158,7 +185,7 @@ export function fitTo(item: Item, from: Rect, to: Rect): Item {
   }
   if (item.type === "shape") {
     // Signed w/h so an arrow keeps pointing the way it was drawn.
-    const b = bbox(item);
+    const b = bbox(item, measured);
     const flipX = item.w < 0, flipY = item.h < 0;
     const nx = mapX(b.x), ny = mapY(b.y);
     const nw = b.w * sx, nh = b.h * sy;
@@ -182,7 +209,7 @@ function distToSegment(p: Point, a: Point, b: Point): number {
 
 /** Topmost item under a world point. `slop` is world units, so the grab area
  *  stays constant on screen however far out you are zoomed. */
-export function hitTest(items: Item[], p: Point, slop: number): Item | null {
+export function hitTest(items: Item[], p: Point, slop: number, measured?: Measured): Item | null {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     if (it.type === "stroke") {
@@ -199,7 +226,7 @@ export function hitTest(items: Item[], p: Point, slop: number): Item | null {
       if (distToSegment(p, { x: it.x, y: it.y }, { x: it.x + it.w, y: it.y + it.h }) <= reach) return it;
       continue;
     }
-    const b = bbox(it);
+    const b = bbox(it, measured);
     if (contains({ x: b.x - slop, y: b.y - slop, w: b.w + slop * 2, h: b.h + slop * 2 }, p)) return it;
   }
   return null;

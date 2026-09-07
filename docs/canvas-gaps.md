@@ -16,17 +16,22 @@ table would list first.
 now a fractional index per item, so two people reordering the same board
 converge. See `src/order.ts`.
 
-**Item locking.** You place a reference image and then draw over it, and every
-stroke risks grabbing the image instead. A `locked` flag that excludes an item
-from hit-testing and selection is a handful of lines and removes a daily
-irritation. We have a camera lock; we have nothing for a single item.
+**Item locking.** *Done.* ⌘L locks a selection, ⌘⇧L unlocks the whole board —
+which has to work on the board rather than on a selection, since a locked item
+cannot be selected and locking would otherwise be a one-way door.
 
-**Real text measurement.** `textHeight()` in `geometry.ts` estimates a line
-count from character counts and an assumed average glyph width. It is wrong for
-any script whose glyphs are not that width — which includes Telugu, the writing
-this project exists partly to work with. The selection box around a paragraph
-is therefore wrong, and so is anything derived from it. Measuring the rendered
-text and writing the result back is the fix.
+**Real text measurement.** *Done.* Text is measured from what the font engine
+rendered, via a ResizeObserver, and geometry takes those heights. The old
+estimate divided the box width by `fontSize * 0.55` — the average advance of
+Latin lowercase — so it ran short for Telugu, Devanagari and CJK alike. The
+fallback for text not yet on screen no longer pretends to know a ratio that
+works for every script: it assumes a wide glyph and generous line spacing,
+because a box slightly too large is cosmetic while a box too small makes text
+unselectable at its edges.
+
+Measurements are kept in memory, not written to the board — a measurement is a
+fact about this machine's fonts, not about the document, and saving it would
+dirty a board simply by opening it.
 
 ## 2. Layout — daily work a research board needs
 

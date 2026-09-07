@@ -98,6 +98,30 @@ check("drawing tools draw, and are not confused with each other", () => {
   }
 });
 
+// ---- locking ------------------------------------------------------------
+
+const locked = { ...note, id: "lk", locked: true };
+
+check("a locked item is invisible to the pointer", () => {
+  // The point of locking: place a reference image, lock it, and every stroke
+  // after that lands on the board instead of grabbing the image.
+  assert.equal(press({ hit: locked }).kind, "marquee");
+  assert.equal(press({ hit: locked, isDouble: true }).kind, "marquee");
+});
+
+check("an unlocked item still responds normally", () => {
+  assert.equal(press({ hit: note }).kind, "move");
+});
+
+check("locking is a flag, not a deletion", () => {
+  assert.deepEqual(I.selectable([note, locked]).map((i) => i.id), ["n"]);
+  assert.equal(I.selectable([locked]).length, 0);
+});
+
+check("nothing locked means nothing filtered", () => {
+  assert.equal(I.selectable([note, text, shape]).length, 3);
+});
+
 // ---- pointer capture ----------------------------------------------------
 
 check("gestures that leave the element capture the pointer", () => {

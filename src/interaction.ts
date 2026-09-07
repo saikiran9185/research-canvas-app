@@ -54,7 +54,9 @@ export function decidePress(c: PressContext): Intent | null {
     default: break;
   }
   if (c.handle) return { kind: "resize", handle: c.handle };
-  if (c.hit) {
+  // A locked item is not there as far as the pointer is concerned — the press
+  // falls through to the board, which is the whole point of locking it.
+  if (c.hit && !c.hit.locked) {
     // A second click on text or a note opens its editor rather than starting
     // another drag of something you are already holding.
     if (c.isDouble && (c.hit.type === "text" || c.hit.type === "note")) return { kind: "edit" };
@@ -80,6 +82,11 @@ export function shouldCapturePointer(intent: Intent): boolean {
     case "place": case "edit":
       return false;
   }
+}
+
+/** Items a pointer may act on. Locked ones are visible but inert. */
+export function selectable<T extends Item>(items: readonly T[]): T[] {
+  return items.filter((i) => !i.locked);
 }
 
 /**

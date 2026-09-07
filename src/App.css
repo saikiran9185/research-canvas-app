@@ -924,3 +924,16 @@ body {
 /* Media is drawn from its own pixels at the size it occupies on screen, so it
    stays sharp; ask the browser for the good downsampler while it is at it. */
 .block img, .media img, .pdf-page { image-rendering: auto; }
+
+
+/* A locked item does not respond to the pointer, so it has to say why —
+   silence reads as a bug. A faint corner mark, only on hover, keeps it out of
+   the way of the material itself. */
+.block.is-locked { cursor: default; }
+.block.is-locked::after {
+  content: "🔒";
+  position: absolute; top: 2px; right: 4px;
+  font-size: 11px; opacity: 0; transition: opacity 120ms;
+  pointer-events: none;
+}
+.block.is-locked:hover::after { opacity: 0.55; }

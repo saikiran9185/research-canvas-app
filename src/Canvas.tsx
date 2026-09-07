@@ -8,7 +8,7 @@ import {
   MIN_ITEM_SIZE, NIB, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
 } from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
-import { decidePress, isDoubleClick, shouldCapturePointer, travelled, widthForTool } from "./interaction";
+import { decidePress, isDoubleClick, selectable, shouldCapturePointer, travelled, widthForTool } from "./interaction";
 import { ordered, reorder } from "./order";
 import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
@@ -135,6 +135,19 @@ export default function Canvas({
   const [guides, setGuides] = useState<Guide[]>([]);
   const [hoverCursor, setHoverCursor] = useState<string | null>(null);
   const [view, setView] = useState({ w: 0, h: 0 });
+  /**
+   * Text heights as the font engine actually rendered them, in world units.
+   *
+   * Held here rather than written back into the board: a measurement is a fact
+   * about this machine's fonts and this zoom level, not about the document,
+   * and saving it would make simply opening a board dirty it for everyone
+   * else syncing the folder.
+   */
+  const [measured, setMeasured] = useState<Map<string, number>>(new Map());
+  const textEls = useRef(new Map<string, HTMLElement>());
+  /** Which text items exist, so the observer is rebound when that changes —
+   *  the count alone is not enough, since ids can change while it does not. */
+  const textKey = doc.items.filter((i) => i.type === "text").map((i) => i.id).join(",");
   // Handles are hidden mid-gesture so they do not sit under the cursor while
   // the very box they belong to is being dragged.
   const [dragging, setDragging] = useState(false);
@@ -178,7 +191,7 @@ export default function Canvas({
     [doc.items, selectedIds],
   );
   /** One box around everything selected — the thing you actually resize. */
-  const selectionBox = useMemo(() => union(selectedItems), [selectedItems]);
+  const selectionBox = useMemo(() => union(selectedItems, measured), [selectedItems, measured]);
 
   function screenToWorld(clientX: number, clientY: number): Point {
     const rect = hostRef.current!.getBoundingClientRect();
@@ -192,7 +205,7 @@ export default function Canvas({
 
   /** Which resize handle is under the cursor, in screen space. */
   function handleAt(local: Point): HandleId | null {
-    const box = union(docRef.current.items.filter((i) => selRef.current.has(i.id)));
+    const box = union(docRef.current.items.filter((i) => selRef.current.has(i.id)), measured);
     if (!box) return null;
     const c = docRef.current.camera;
     for (const h of HANDLES) {
@@ -210,6 +223,40 @@ export default function Canvas({
     setView({ w: host.clientWidth, h: host.clientHeight });
     return () => ro.disconnect();
   }, []);
+
+  // Measure rendered text and keep the store in step with it. A ResizeObserver
+  // rather than a render-time read, so it also catches the font loading late,
+  // the window changing, and the text reflowing as it is typed.
+  useEffect(() => {
+    const ro = new ResizeObserver((entries) => {
+      setMeasured((prev) => {
+        let next: Map<string, number> | null = null;
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.itemId;
+          if (!id) continue;
+          // Blocks are laid out in screen pixels, so convert back to world.
+          const world = entry.contentRect.height / docRef.current.camera.zoom;
+          if (!Number.isFinite(world) || world <= 0) continue;
+          const was = prev.get(id);
+          if (was !== undefined && Math.abs(was - world) < 0.5) continue;
+          next ??= new Map(prev);
+          next.set(id, world);
+        }
+        return next ?? prev;
+      });
+    });
+    for (const el of textEls.current.values()) ro.observe(el);
+
+    // Forget items that are gone, so the store cannot grow for the life of
+    // the session on a board that is edited a lot.
+    setMeasured((prev) => {
+      const live = new Set(textEls.current.keys());
+      if ([...prev.keys()].every((id) => live.has(id))) return prev;
+      return new Map([...prev].filter(([id]) => live.has(id)));
+    });
+
+    return () => ro.disconnect();
+  }, [textKey]);
 
   // --- zoom & pan via wheel (non-passive so we can preventDefault) --------
   useEffect(() => {
@@ -260,7 +307,7 @@ export default function Canvas({
 
       if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        setSelectedIds(new Set(d.items.map((i) => i.id)));
+        setSelectedIds(new Set(selectable(d.items).map((i) => i.id)));
         return;
       }
 
@@ -272,6 +319,20 @@ export default function Canvas({
         } else if (sel.size > 1) {
           const gid = uid();
           setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: gid } : i)) });
+        }
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          // The way back. A locked item cannot be selected, so unlocking has
+          // to work on the board rather than on a selection — otherwise
+          // locking something is a one-way door.
+          setDoc({ ...d, items: d.items.map((i) => (i.locked ? { ...i, locked: undefined } : i)) });
+        } else if (sel.size) {
+          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, locked: true } : i)) });
+          setSelectedIds(new Set());
         }
         return;
       }
@@ -318,7 +379,7 @@ export default function Canvas({
         e.preventDefault();
         const host = hostRef.current;
         if (!host) return;
-        const target = union(sel.size ? d.items.filter((i) => sel.has(i.id)) : d.items);
+        const target = union(sel.size ? d.items.filter((i) => sel.has(i.id)) : d.items, measured);
         if (!target) return;
         setDoc({ ...d, camera: cameraFor(target, host.clientWidth, host.clientHeight) }, false);
         return;
@@ -446,7 +507,7 @@ export default function Canvas({
     if (d.mode === "marquee") {
       const box = normalize(d.origin, p);
       setMarquee(box);
-      const inside = docRef.current.items.filter((i) => overlaps(bbox(i), box)).map((i) => i.id);
+      const inside = selectable(docRef.current.items).filter((i) => overlaps(bbox(i, measured), box)).map((i) => i.id);
       select(d.additive ? new Set([...d.base, ...inside]) : new Set(inside));
       return;
     }
@@ -458,10 +519,10 @@ export default function Canvas({
       d.moved = true;
 
       const sel = selRef.current;
-      const box = union(d.snapshot.filter((i) => sel.has(i.id)));
+      const box = union(d.snapshot.filter((i) => sel.has(i.id)), measured);
       if (box) {
         const moved = { x: box.x + dx, y: box.y + dy, w: box.w, h: box.h };
-        const others = docRef.current.items.filter((i) => !sel.has(i.id)).map(bbox);
+        const others = docRef.current.items.filter((i) => !sel.has(i.id)).map((i) => bbox(i, measured));
         const snap = snapMove(moved, others, SNAP_PX / docRef.current.camera.zoom);
         dx += snap.dx;
         dy += snap.dy;
@@ -477,7 +538,7 @@ export default function Canvas({
         ...docRef.current,
         items: docRef.current.items.map((i) => {
           const original = byId.get(i.id);
-          return original ? fitTo(original, d.startBox, next) : i;
+          return original ? fitTo(original, d.startBox, next, measured) : i;
         }),
       }, false);
     }
@@ -529,7 +590,7 @@ export default function Canvas({
 
   /** Pointer down on an item, in select mode. */
   function itemPointerDown(e: React.PointerEvent, item: Item) {
-    if (tool !== "select" || spaceDown) return;
+    if (tool !== "select" || spaceDown || item.locked) return;
     e.stopPropagation();
 
     // Detect the double-click ourselves rather than relying on the dblclick
@@ -642,7 +703,7 @@ export default function Canvas({
             it.type === "stroke" ? (
               <g key={it.id}>
                 {/* wide invisible hit area for easy selection */}
-                <path d={polylinePath(it.points)} stroke="transparent" strokeWidth={hitBand(it.size)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
+                <path d={polylinePath(it.points)} stroke="transparent" strokeWidth={hitBand(it.size)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" && !it.locked ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
                 {it.points.length >= 4 ? (
                   <path d={inkOutline(it.points, it.size)} fill={ink(it.color)} style={{ pointerEvents: "none" }} />
                 ) : (
@@ -651,7 +712,7 @@ export default function Canvas({
                 )}
               </g>
             ) : (
-              <ShapeView key={it.id} item={it as ShapeItem} ink={ink} hitBand={hitBand(it.size)} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
+              <ShapeView key={it.id} item={it as ShapeItem} ink={ink} hitBand={hitBand(it.size)} selectable={tool === "select" && !it.locked} onDown={(e) => itemPointerDown(e, it)} />
             )
           )}
         </svg>
@@ -661,16 +722,24 @@ export default function Canvas({
           pixels — neither is a bitmap of a smaller version blown up. */}
       <div className="world">
         {blocks.map((it) => {
-          const b = bbox(it);
+          const b = bbox(it, measured);
           const selected = selectedIds.has(it.id);
           const z = cam.zoom;
           return (
-            <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: sx(b.x), top: sy(b.y), width: b.w * z, ...(it.type !== "text" ? { height: b.h * z } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
+            <div key={it.id} className={"block" + (selected ? " selected" : "") + (it.locked ? " is-locked" : "")} style={{ left: sx(b.x), top: sy(b.y), width: b.w * z, ...(it.type !== "text" ? { height: b.h * z } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
                   <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
                 ) : (
-                  <div className="text-view" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}>
+                  <div
+                    className="text-view"
+                    data-item-id={it.id}
+                    ref={(el) => {
+                      if (el) textEls.current.set(it.id, el);
+                      else textEls.current.delete(it.id);
+                    }}
+                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}
+                  >
                     {it.text || <span className="placeholder">Text</span>}
                   </div>
                 )
@@ -805,7 +874,7 @@ export default function Canvas({
 
         {/* One outline per selected item, so you can see what is in the set. */}
         {selectedIds.size > 1 && selectedItems.map((it) => {
-          const b = bbox(it);
+          const b = bbox(it, measured);
           return <div key={it.id} className="member-outline" style={{ left: sx(b.x), top: sy(b.y), width: b.w * cam.zoom, height: b.h * cam.zoom }} />;
         })}
 

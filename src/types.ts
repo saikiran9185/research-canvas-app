@@ -33,6 +33,13 @@ interface Base {
    */
   groupId?: string;
   /**
+   * A locked item is visible but inert: it cannot be selected, dragged,
+   * resized or deleted by pointer. What it is for is the reference material
+   * you want to draw ON TOP of — place a screenshot, lock it, and every stroke
+   * after that lands on the board instead of grabbing the screenshot.
+   */
+  locked?: boolean;
+  /**
    * Stacking order, as a fractional index: a string that sorts
    * lexicographically, and between any two of which another can always be
    * generated. Optional so older boards still load — they are assigned indices

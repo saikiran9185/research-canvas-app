@@ -290,4 +290,53 @@ check("zoom-to-fit and the wheel agree on the ceiling", () => {
   assert.ok(cam.zoom <= 16 && cam.zoom > 4, `fit reached ${cam.zoom}, expected the shared ceiling`);
 });
 
+// ---- text measurement ----------------------------------------------------
+
+const textItem = (t, w = 200, fs = 20) => ({ id: "t", type: "text", x: 0, y: 0, w, text: t, color: "#000", fontSize: fs });
+
+check("a measured height is used in place of the guess", () => {
+  const it = textItem("some words");
+  const guessed = G.bbox(it).h;
+  const real = G.bbox(it, new Map([["t", 999]])).h;
+  assert.equal(real, 999);
+  assert.notEqual(real, guessed);
+});
+
+check("without a measurement it still returns something sane", () => {
+  const h = G.bbox(textItem("hello")).h;
+  assert.ok(h >= 20 && Number.isFinite(h));
+});
+
+check("the fallback errs large, not small", () => {
+  // A box slightly too big is cosmetic; a box too small makes the text
+  // unselectable at its edges.
+  const h = G.estimateTextHeight("x", 200, 20);
+  assert.ok(h >= 20 * 1.35, `${h} is tighter than a single line of 20px text`);
+});
+
+check("the fallback does not assume Latin glyph widths", () => {
+  // The old ratio was 0.55 — the average advance of Latin lowercase. Telugu
+  // and CJK are wider, so the same string must be allowed more lines, not
+  // fewer. Compare against what the old assumption would have produced.
+  const w = 200, fs = 20, text = "a".repeat(40);
+  const oldPerLine = Math.max(1, Math.floor(w / (fs * 0.55)));
+  const oldLines = Math.max(1, Math.ceil(text.length / oldPerLine));
+  const nowH = G.estimateTextHeight(text, w, fs);
+  assert.ok(nowH > oldLines * fs * 1.35, "must allow more room than the Latin-only guess");
+});
+
+check("more text is never shorter than less text", () => {
+  const short = G.estimateTextHeight("one line", 200, 20);
+  const long = G.estimateTextHeight("word ".repeat(60), 200, 20);
+  assert.ok(long > short);
+});
+
+check("measurements feed through union and hit testing too", () => {
+  const it = textItem("x");
+  const m = new Map([["t", 500]]);
+  assert.equal(G.union([it], m).h, 500);
+  assert.ok(G.hitTest([it], { x: 10, y: 400 }, 0, m), "the tall box should be hit");
+  assert.equal(G.hitTest([it], { x: 10, y: 400 }, 0), null, "the guessed box should not");
+});
+
 console.log(`\n${passed} geometry checks passed`);
