@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "node test/merge.test.mjs",
+    "test": "node test/geometry.test.mjs && node test/interaction.test.mjs && node test/merge.test.mjs",
     "test:browser": "node test/browser/run.mjs textlayer.html && node test/browser/run.mjs ocr.html && node test/browser/run.mjs annotated-pdf.html",
     "test:all": "npm test && npm run test:browser",
     "app": "node scripts/install-app.mjs",
@@ -28,6 +28,7 @@
     "mammoth": "^1.12.2",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
+    "perfect-freehand": "^1.2.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tesseract.js": "^7.0.0"

@@ -138,8 +138,17 @@ body {
   background-image: radial-gradient(circle, var(--grid-dot) 1.2px, transparent 1.2px);
   background-repeat: repeat;
 }
+/* Neither layer is scaled by CSS any more — see the viewBox comment in
+   Canvas.tsx. `.world` is a zero-size origin whose children are placed in
+   screen pixels; the SVG fills the viewport and carries the camera itself. */
 .world { position: absolute; top: 0; left: 0; width: 0; height: 0; }
-.vector-layer { position: absolute; overflow: visible; }
+.vector-layer {
+  position: absolute; top: 0; left: 0;
+  /* Transparent areas must not swallow clicks meant for the board; the paths
+     inside re-enable hits on themselves. */
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+}
 
 .block { position: absolute; }
 .block.selected { outline: 1.5px solid var(--accent); outline-offset: 1px; }
@@ -170,45 +179,141 @@ body {
 .audio-name { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .audio-card audio { width: 100%; }
 
-.resize-handle {
-  position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px;
-  background: #fff; border: 1.5px solid var(--accent); border-radius: 3px; cursor: nwse-resize;
+/* One frame around the whole selection, with a handle on each of its eight
+   sides. The handles are counter-scaled by the camera so they stay the same
+   size on screen at every zoom level — a 12px grab target is only a grab
+   target if it is still 12px when you are zoomed out to 20%. */
+.selection-box {
+  position: absolute; pointer-events: none;
+  outline: 1.5px solid var(--accent); outline-offset: 2px;
 }
-.vector-selection { position: absolute; outline: 1.5px dashed var(--accent); pointer-events: none; }
-.vector-selection .resize-handle { pointer-events: auto; }
+.resize-handle {
+  position: absolute; width: 10px; height: 10px; margin: 0;
+  background: #fff; border: 1.5px solid var(--accent); border-radius: 2px;
+  pointer-events: none; /* the hit test is done in screen space, not by the DOM */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+}
+
+/* Every member of a multi-selection gets a quiet outline of its own, so it is
+   obvious what is in the set and not just how big the set is. */
+.member-outline {
+  position: absolute; pointer-events: none;
+  outline: 1px dashed var(--accent); opacity: 0.55;
+}
+
+.marquee {
+  position: absolute; pointer-events: none;
+  background: rgba(59,130,246,0.08);
+  outline: 1px solid var(--accent);
+}
+
+/* Alignment guides. Drawn as a hairline that ignores the camera scale, so it
+   stays one pixel wide however far you are zoomed in. */
+.snap-guide {
+  position: absolute; pointer-events: none; z-index: 3;
+  outline: 1px solid #f43f5e;
+}
 
 /* ---------------- Toolbar ---------------- */
-/* The rail is centred, but it must never grow past the window: with the fill
-   controls added it became taller than a laptop screen and clipped Select and
-   Pan off the top, leaving no way back to them. Cap it and let it scroll. */
+/* A horizontal rail along the bottom edge, where a canvas app's tools belong:
+   it never competes with the board for height, and it stays the width of the
+   tools rather than the width of every colour anyone might want — the style
+   controls live in a panel above it, shown only when they can do something.
+   It can be dragged anywhere, and remembers where you put it. */
 .toolbar {
-  position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  /* Fixed to the window, not to the canvas area. Centring it on a container
+     that shrinks when the notes panel opens made the rail jump sideways every
+     time you toggled a panel — which read as the toolbar running away from
+     the cursor. */
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
   z-index: 10; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 16px; padding: 8px; display: flex; flex-direction: column; gap: 4px;
-  box-shadow: var(--shadow-md); align-items: center;
-  max-height: calc(100% - 24px);
-  overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: none;
+  border-radius: 14px; padding: 6px 8px;
+  display: flex; flex-direction: row; align-items: center; gap: 2px;
+  box-shadow: var(--shadow-md);
+  max-width: calc(100% - 32px);
+  user-select: none;
 }
-.toolbar::-webkit-scrollbar { width: 0; height: 0; }
-/* Nothing in the rail may shrink, or the buttons squash instead of scrolling. */
 .toolbar > * { flex: none; }
+
+.toolbar-grip {
+  width: 14px; height: 30px; margin-right: 4px;
+  display: grid; place-items: center; cursor: grab;
+  color: var(--muted); border-radius: 6px;
+}
+.toolbar-grip:hover { background: var(--bg); color: var(--text); }
+.toolbar-grip:active { cursor: grabbing; }
+.toolbar-grip svg { width: 8px; height: 20px; fill: currentColor; }
+
 .tool-btn {
-  width: 36px; height: 36px; border: none; background: transparent; color: var(--text);
-  border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border: none; background: transparent; color: var(--text);
+  border-radius: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .tool-btn:hover { background: var(--bg); }
 .tool-btn.active { background: var(--accent); color: #fff; }
 .tool-btn:disabled { opacity: 0.35; cursor: default; }
 .tool-btn svg { width: 20px; height: 20px; }
-.tool-divider { width: 22px; height: 1px; background: var(--line); margin: 2px 0; }
-.color-well { width: 26px; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
-.color-well input { width: 150%; height: 150%; margin: -25%; border: none; padding: 0; cursor: pointer; background: none; }
-.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 2px 0; }
-.swatch { width: 13px; height: 13px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; padding: 0; }
+
+/* Vertical now that the rail runs horizontally. */
+.tool-divider { width: 1px; height: 22px; background: var(--line); margin: 0 5px; }
+
+/* The one control that stands in for the whole style panel: current line
+   colour as a ring, current fill as the disc inside it. */
+.style-trigger {
+  width: 34px; height: 34px; border: none; background: transparent;
+  border-radius: 9px; cursor: pointer; position: relative;
+  display: grid; place-items: center;
+}
+.style-trigger:hover:not(:disabled) { background: var(--bg); }
+.style-trigger.active { background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.style-trigger:disabled { opacity: 0.3; cursor: default; }
+.style-ink {
+  position: absolute; width: 20px; height: 20px; border-radius: 50%;
+  border: 3px solid currentColor; box-sizing: border-box; background: none !important;
+}
+.style-fill {
+  position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(128,128,128,0.35);
+}
+
+/* The style panel floats above the rail rather than inside it. */
+.style-pop {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: var(--shadow-md); min-width: 232px;
+}
+.style-section { display: flex; flex-direction: column; gap: 7px; }
+.style-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 600;
+}
+
+/* The colour well has to read as "pick any colour", not as one more swatch —
+   an unlabelled <input type=color> is indistinguishable from the preset next
+   to it. The nib icon sits on top of the current colour; the input itself is
+   invisible and covers the whole well. */
+.color-well {
+  position: relative; width: 20px; height: 20px; border-radius: 6px;
+  overflow: hidden; border: 1px solid var(--line);
+  display: grid; place-items: center;
+}
+.color-well svg {
+  width: 14px; height: 14px; fill: #fff; pointer-events: none;
+  filter: drop-shadow(0 0 1.5px rgba(0,0,0,0.65));
+}
+.color-well.empty { background: var(--bg); }
+.color-well.empty svg { fill: var(--text); filter: none; }
+.color-well input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; border: none; padding: 0; cursor: pointer; background: none;
+}
+
+.swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.swatch {
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 1px solid rgba(128,128,128,0.28); cursor: pointer; padding: 0;
+}
 .swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
-.size-control { padding: 4px 0; }
-.size-control input { writing-mode: vertical-lr; direction: rtl; width: 18px; height: 46px; accent-color: var(--accent); }
 
 /* ---------------- Status + welcome ---------------- */
 .statusbar {
@@ -308,6 +413,17 @@ body {
   box-shadow: 0 3px 10px rgba(0,0,0,.2); text-align: left;
 }
 .board-pin-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-pin.is-draft { cursor: text; }
+
+/* Typing happens in the bubble itself, so the editor has to be the bubble —
+   no border, no background of its own, inheriting the bubble's type. */
+.pin-edit {
+  border: none; outline: none; resize: none; background: none;
+  color: inherit; font: inherit; min-width: 150px; width: 100%;
+  height: 1.35em; min-height: 1.35em; max-height: 6em;
+  overflow: hidden; padding: 0;
+}
+.pin-edit::placeholder { color: rgba(255,255,255,0.65); }
 
 /* =========================================================================
    Notes panel (whole board)
@@ -762,3 +878,49 @@ body {
   overflow: hidden;
 }
 .textLayer .ocr-word::selection { background: color-mix(in srgb, #3b82f6 40%, transparent); }
+/* ---------------- Shortcuts overlay ---------------- */
+.shortcuts-backdrop {
+  position: fixed; inset: 0; background: rgba(17, 24, 39, 0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.shortcuts-panel {
+  outline: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  width: 420px; max-width: 92vw; max-height: 82vh; overflow-y: auto;
+  padding: 18px 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+.shortcuts-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.shortcuts-head h2 { margin: 0; font-size: 16px; }
+.shortcuts-section h3 {
+  margin: 14px 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted);
+}
+.shortcuts-section ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.shortcuts-section li { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 10px; font-size: 13px; }
+.shortcuts-section kbd {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 2px 7px; font-size: 12px; font-family: inherit; color: var(--text);
+  text-align: center; justify-self: start; min-width: 30px; white-space: nowrap;
+}
+
+
+/* ---------------- Nib presets ---------------- */
+
+.size-row { display: flex; align-items: center; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.nib {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: 7px; background: none; cursor: pointer;
+}
+.nib span { display: block; border-radius: 50%; background: var(--muted); }
+.nib:hover { background: var(--bg); }
+.nib.active { border-color: var(--accent); background: var(--bg); }
+.nib.active span { background: var(--accent); }
+
+/* A sticky note is always light paper, so its text must stay dark ink even
+   when the rest of the app is in the dark palette. */
+.note, .note-text, .note-edit { color: #1c1917; }
+
+
+/* Media is drawn from its own pixels at the size it occupies on screen, so it
+   stays sharp; ask the browser for the good downsampler while it is at it. */
+.block img, .media img, .pdf-page { image-rendering: auto; }

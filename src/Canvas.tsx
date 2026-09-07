@@ -1,21 +1,37 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
+import { getStroke } from "perfect-freehand";
+import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
+import { decidePress, isDoubleClick, shouldCapturePointer, travelled, widthForTool } from "./interaction";
 import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
+import {
+  bbox, CURSOR, cameraFor, expandToGroups, fitTo, HANDLES, handlePoint, minUsefulZoom,
+  normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
+  type Guide, type HandleId, type Point, type Rect,
+} from "./geometry";
 
 interface Props {
   doc: CanvasDoc;
   setDoc: (next: CanvasDoc, history?: boolean) => void;
+  /** Take an undo point for the board as it stands, before a gesture edits it. */
+  pushHistory: () => void;
+  /** Which palette is showing, so ink can be resolved at paint time. */
+  dark: boolean;
+  /** Freezes the camera, so a stray gesture cannot lose your place. */
+  locked: boolean;
   tool: Tool;
   setTool: (t: Tool) => void;
   color: string;
   size: number;
   fill: string;
-  selectedId: string | null;
-  setSelectedId: (id: string | null) => void;
+  /** Selection is a set: a board is not usable if you can only ever hold one
+   *  thing at a time. */
+  selectedIds: Set<string>;
+  setSelectedIds: (ids: Set<string>) => void;
   /** Open (unresolved) note count per item, for the badge on each card. */
   annotationCounts: Map<string, number>;
   /** Notes dropped straight onto the canvas rather than onto a file. */
@@ -23,33 +39,60 @@ interface Props {
   onOpenMedia: (itemId: string) => void;
   /** Follow an excerpt's backlink to where it was taken from. */
   onOpenExcerptSource: (ex: ExcerptItem) => void;
-  onBoardComment: (world: { x: number; y: number }) => void;
+  /** Commit a new note dropped on the board. Empty text is discarded. */
+  onBoardComment: (world: { x: number; y: number }, text: string) => void;
+  /** Edit an existing bubble in place. Empty text deletes it. */
+  onEditBoardComment: (a: Annotation, text: string) => void;
   onOpenAnnotation: (a: Annotation) => void;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-// ---- geometry helpers ---------------------------------------------------
-function strokePath(points: number[]): string {
+const MIN_SIZE = 20;
+const SNAP_PX = 6;       // magnet strength, in screen pixels
+const HANDLE_PX = 9;     // grab radius for a resize handle, in screen pixels
+const DRAG_SLOP_PX = 3;  // ignore this much wobble before a click becomes a drag
+
+/** The bare polyline: the hit area, and the fallback for a lone dot. */
+function polylinePath(points: number[]): string {
   if (points.length < 2) return "";
+  if (points.length === 2) {
+    // A single tap is a dot. It used to be discarded entirely.
+    const [x, y] = points;
+    return `M ${x} ${y} L ${x + 0.01} ${y}`;
+  }
   let d = `M ${points[0]} ${points[1]}`;
   for (let i = 2; i < points.length; i += 2) d += ` L ${points[i]} ${points[i + 1]}`;
   return d;
 }
 
-function bbox(item: Item): { x: number; y: number; w: number; h: number } {
-  if (item.type === "stroke") {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let i = 0; i < item.points.length; i += 2) {
-      minX = Math.min(minX, item.points[i]);
-      maxX = Math.max(maxX, item.points[i]);
-      minY = Math.min(minY, item.points[i + 1]);
-      maxY = Math.max(maxY, item.points[i + 1]);
-    }
-    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-  }
-  if (item.type === "text") return { x: item.x, y: item.y, w: item.w, h: 40 };
-  return { x: item.x, y: item.y, w: item.w, h: item.h };
+/**
+ * The visible stroke: an outline, not a line.
+ *
+ * A constant-width stroked path reads as a cable rather than as a drawn mark.
+ * perfect-freehand (MIT, by the author of tldraw) turns the input points into
+ * the *outline* of a nib that tapers at the ends and thins as the hand moves
+ * faster — which is what makes ink look like ink. We fill that outline.
+ *
+ * It is a single-purpose utility, not a framework: it takes points and returns
+ * a polygon, and knows nothing about this app.
+ */
+function inkOutline(points: number[], size: number): string {
+  if (points.length < 4) return "";
+  const pts: number[][] = [];
+  for (let i = 0; i < points.length; i += 2) pts.push([points[i], points[i + 1]]);
+  const outline = getStroke(pts, {
+    size,
+    thinning: 0.55,
+    smoothing: 0.55,
+    streamline: 0.4,
+    simulatePressure: true,
+    last: true,
+  });
+  if (!outline.length) return "";
+  let d = `M ${outline[0][0].toFixed(2)} ${outline[0][1].toFixed(2)}`;
+  for (let i = 1; i < outline.length; i++) d += ` L ${outline[i][0].toFixed(2)} ${outline[i][1].toFixed(2)}`;
+  return d + " Z";
 }
 
 function normRect(s: ShapeItem): ShapeItem {
@@ -58,37 +101,116 @@ function normRect(s: ShapeItem): ShapeItem {
   return { ...s, x, y, w: Math.abs(s.w), h: Math.abs(s.h) };
 }
 
-function translate(item: Item, dx: number, dy: number): Item {
-  if (item.type === "stroke") {
-    return { ...item, points: item.points.map((v, i) => (i % 2 === 0 ? v + dx : v + dy)) };
-  }
-  return { ...item, x: item.x + dx, y: item.y + dy };
-}
+/** Give a pasted or duplicated item a fresh identity. */
+const reid = (it: Item): Item => ({ ...it, id: uid() });
+
+type Drag =
+  | { mode: "pan"; sx: number; sy: number; cam: { x: number; y: number; zoom: number } }
+  | { mode: "draw" }
+  | { mode: "shape" }
+  | { mode: "marquee"; origin: Point; additive: boolean; base: Set<string> }
+  | { mode: "move"; origin: Point; snapshot: Item[]; moved: boolean }
+  | { mode: "resize"; handle: HandleId; origin: Point; startBox: Rect; snapshot: Item[] };
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, tool, setTool, color, size, fill, selectedId, setSelectedId,
+  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
-  onBoardComment, onOpenAnnotation,
+  onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
+  const selRef = useRef(selectedIds);
+  selRef.current = selectedIds;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
 
   const [draft, setDraft] = useState<Item | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
+  /** An unsaved bubble being typed into, at the spot it was dropped. */
+  const [draftComment, setDraftComment] = useState<{ x: number; y: number; text: string } | null>(null);
+  /** An existing bubble being edited in place. */
+  const [editingPin, setEditingPin] = useState<{ id: string; text: string } | null>(null);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [hoverCursor, setHoverCursor] = useState<string | null>(null);
+  const [view, setView] = useState({ w: 0, h: 0 });
+  // Handles are hidden mid-gesture so they do not sit under the cursor while
+  // the very box they belong to is being dragged.
+  const [dragging, setDragging] = useState(false);
 
-  // active drag state (drawing / panning / moving / resizing)
-  const drag = useRef<any>(null);
+  const drag = useRef<Drag | null>(null);
+  const clipboard = useRef<Item[]>([]);
+  /** Last click, for detecting a double-click ourselves. */
+  const lastClick = useRef<{ id: string; at: number }>({ id: "", at: 0 });
+  /** When the current editor opened, so a blur from the opening click can be
+   *  told apart from the person actually clicking away. */
+  const editorOpenedAt = useRef(0);
   const [spaceDown, setSpaceDown] = useState(false);
 
   const cam = doc.camera;
 
-  function screenToWorld(clientX: number, clientY: number) {
+  /** Select, but never split a group. */
+  const select = useCallback((ids: Set<string>) => {
+    const next = expandToGroups(docRef.current.items, ids);
+    selRef.current = next;
+    setSelectedIds(next);
+  }, [setSelectedIds]);
+
+  /**
+   * What to paint an item's ink with, under the palette in force.
+   *
+   * Items drawn with the default ink carry a token rather than a literal, so
+   * they follow the palette. Anything with a deliberate colour keeps it — but
+   * a colour that has no contrast against this paper at all is still a mark
+   * you cannot see, so it falls back rather than vanishing.
+   */
+  const ink = useCallback((c: string) => {
+    const resolved = resolveInk(c, dark);
+    return contrastsWithPaper(resolved, dark) ? resolved : (dark ? INK.dark : INK.light);
+  }, [dark]);
+
+  /** Default ink is stored as a token; a chosen colour is stored literally. */
+  const inkToStore = isDefaultInk(color) ? INK_TOKEN : color;
+
+  const selectedItems = useMemo(
+    () => doc.items.filter((i) => selectedIds.has(i.id)),
+    [doc.items, selectedIds],
+  );
+  /** One box around everything selected — the thing you actually resize. */
+  const selectionBox = useMemo(() => union(selectedItems), [selectedItems]);
+
+  function screenToWorld(clientX: number, clientY: number): Point {
     const rect = hostRef.current!.getBoundingClientRect();
-    const c = docRef.current.camera;
-    return { x: (clientX - rect.left - c.x) / c.zoom, y: (clientY - rect.top - c.y) / c.zoom };
+    return toWorld({ x: clientX - rect.left, y: clientY - rect.top }, docRef.current.camera);
   }
+
+  function localPoint(clientX: number, clientY: number): Point {
+    const rect = hostRef.current!.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  /** Which resize handle is under the cursor, in screen space. */
+  function handleAt(local: Point): HandleId | null {
+    const box = union(docRef.current.items.filter((i) => selRef.current.has(i.id)));
+    if (!box) return null;
+    const c = docRef.current.camera;
+    for (const h of HANDLES) {
+      const p = handlePoint(box, h);
+      const s = { x: p.x * c.zoom + c.x, y: p.y * c.zoom + c.y };
+      if (Math.abs(s.x - local.x) <= HANDLE_PX && Math.abs(s.y - local.y) <= HANDLE_PX) return h;
+    }
+    return null;
+  }
+
+  useEffect(() => {
+    const host = hostRef.current!;
+    const ro = new ResizeObserver(() => setView({ w: host.clientWidth, h: host.clientHeight }));
+    ro.observe(host);
+    setView({ w: host.clientWidth, h: host.clientHeight });
+    return () => ro.disconnect();
+  }, []);
 
   // --- zoom & pan via wheel (non-passive so we can preventDefault) --------
   useEffect(() => {
@@ -100,155 +222,388 @@ export default function Canvas({
       if (e.ctrlKey || e.metaKey) {
         const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
         const wx = (sx - c.x) / c.zoom, wy = (sy - c.y) / c.zoom;
-        const zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.01), 0.05, 8);
+        const floor = locked ? c.zoom
+          : minUsefulZoom(union(docRef.current.items), host.clientWidth, host.clientHeight);
+        const zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.01), floor, locked ? c.zoom : 8);
         setDoc({ ...docRef.current, camera: { x: sx - wx * zoom, y: sy - wy * zoom, zoom } }, false);
       } else {
+        if (locked) return;
         setDoc({ ...docRef.current, camera: { ...c, x: c.x - e.deltaX, y: c.y - e.deltaY } }, false);
       }
     };
     host.addEventListener("wheel", onWheel, { passive: false });
     return () => host.removeEventListener("wheel", onWheel);
-  }, [setDoc]);
+  }, [setDoc, locked]);
 
-  // --- keyboard: space to pan, delete to remove -------------------------
+  // --- keyboard ----------------------------------------------------------
   useEffect(() => {
+    const replaceSelected = (fn: (items: Item[], selected: Item[]) => Item[]) => {
+      const d = docRef.current;
+      const selected = d.items.filter((i) => selRef.current.has(i.id));
+      if (!selected.length) return;
+      setDoc({ ...d, items: fn(d.items, selected) });
+    };
+
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !isTyping(e)) setSpaceDown(true);
-      if ((e.key === "Backspace" || e.key === "Delete") && selectedId && !isTyping(e)) {
+      if (isTyping(e)) return;
+      const d = docRef.current;
+      const sel = selRef.current;
+      const mod = e.metaKey || e.ctrlKey;
+
+      if ((e.key === "Backspace" || e.key === "Delete") && sel.size) {
         e.preventDefault();
-        setDoc({ ...docRef.current, items: docRef.current.items.filter((i) => i.id !== selectedId) });
-        setSelectedId(null);
+        setDoc({ ...d, items: d.items.filter((i) => !sel.has(i.id)) });
+        setSelectedIds(new Set());
+        return;
+      }
+
+      if (e.key === "Escape") { setSelectedIds(new Set()); setEditingId(null); return; }
+
+      if (e.key === "Enter" && sel.size === 1) {
+        const only = d.items.find((i) => sel.has(i.id));
+        if (only && beginEditing(only)) e.preventDefault();
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSelectedIds(new Set(d.items.map((i) => i.id)));
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (!sel.size) return;
+          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: undefined } : i)) });
+        } else if (sel.size > 1) {
+          const gid = uid();
+          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: gid } : i)) });
+        }
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "c" && sel.size) {
+        clipboard.current = d.items.filter((i) => sel.has(i.id));
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "v" && clipboard.current.length) {
+        e.preventDefault();
+        const regroup = new Map<string, string>();
+        const copies = clipboard.current.map((i) => {
+          const copy = reid(translate(i, 24, 24));
+          if (!i.groupId) return copy;
+          if (!regroup.has(i.groupId)) regroup.set(i.groupId, uid());
+          return { ...copy, groupId: regroup.get(i.groupId) };
+        });
+        setDoc({ ...d, items: [...d.items, ...copies] });
+        setSelectedIds(new Set(copies.map((i) => i.id)));
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === "d" && sel.size) {
+        e.preventDefault();
+        const copies = d.items.filter((i) => sel.has(i.id)).map((i) => reid(translate(i, 24, 24)));
+        setDoc({ ...d, items: [...d.items, ...copies] });
+        setSelectedIds(new Set(copies.map((i) => i.id)));
+        return;
+      }
+
+      // Z-order. Painter's order is array order, so this is a reshuffle.
+      if (mod && e.key === "]") {
+        e.preventDefault();
+        replaceSelected((items, selected) => [...items.filter((i) => !sel.has(i.id)), ...selected]);
+        return;
+      }
+      if (mod && e.key === "[") {
+        e.preventDefault();
+        replaceSelected((items, selected) => [...selected, ...items.filter((i) => !sel.has(i.id))]);
+        return;
+      }
+
+      // Zoom to fit: everything, or just the selection if there is one.
+      if (mod && (e.key === "1" || e.key === "0")) {
+        e.preventDefault();
+        const host = hostRef.current;
+        if (!host) return;
+        const target = union(sel.size ? d.items.filter((i) => sel.has(i.id)) : d.items);
+        if (!target) return;
+        setDoc({ ...d, camera: cameraFor(target, host.clientWidth, host.clientHeight) }, false);
+        return;
+      }
+
+      // Arrow keys nudge — 1px, or 10 with shift.
+      if (sel.size && e.key.startsWith("Arrow")) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? translate(i, dx, dy) : i)) });
       }
     };
-    const up = (e: KeyboardEvent) => {
-      if (e.code === "Space") setSpaceDown(false);
-    };
+
+    const up = (e: KeyboardEvent) => { if (e.code === "Space") setSpaceDown(false); };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [selectedId, setDoc, setSelectedId]);
+  }, [setDoc, setSelectedIds]);
 
-  // --- background pointer (draw / place / pan) --------------------------
+  // --- pointer -----------------------------------------------------------
   function onHostPointerDown(e: React.PointerEvent) {
-    if (editingId) commitEditing();
-    const panning = e.button === 1 || tool === "hand" || spaceDown;
+    if (editingId) setEditingId(null);
+    const local = localPoint(e.clientX, e.clientY);
     const p = screenToWorld(e.clientX, e.clientY);
-    hostRef.current!.setPointerCapture(e.pointerId);
 
-    if (panning) {
+    // Nothing under the cursor reaches here: items stop propagation and are
+    // handled by itemPointerDown, so `hit` is null by construction.
+    const intent = decidePress({
+      tool, middleButton: e.button === 1, spaceDown, locked,
+      shiftKey: e.shiftKey, hit: null, handle: handleAt(local), isDouble: false,
+    });
+    if (!intent) return; // locked camera swallowed a pan
+
+    // Capture only for gestures that keep tracking off the element. Capturing
+    // for a placing tool sends the click to the host and blurs the editor that
+    // is about to open.
+    if (shouldCapturePointer(intent)) hostRef.current!.setPointerCapture(e.pointerId);
+
+    if (intent.kind === "pan") {
       drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
+      setDragging(true);
       return;
     }
+
+    if (intent.kind === "resize" && selectionBox) {
+      pushHistory();
+      drag.current = { mode: "resize", handle: intent.handle, origin: p, startBox: selectionBox, snapshot: selectedItems };
+      setDragging(true);
+      return;
+    }
+
+    if (intent.kind === "marquee") {
+      drag.current = { mode: "marquee", origin: p, additive: intent.additive, base: new Set(selectedIds) };
+      setDragging(true);
+      if (!intent.additive) setSelectedIds(new Set());
+      return;
+    }
+
     switch (tool) {
       case "pen":
         drag.current = { mode: "draw" };
-        setDraft({ id: uid(), type: "stroke", points: [p.x, p.y], color, size });
-        break;
+        // A shape may legitimately have no outline; a pen stroke may not — that is
+        // just an invisible mark. Clamp rather than let the tool draw nothing.
+        setDraft({ id: uid(), type: "stroke", points: [p.x, p.y], color: inkToStore, size: widthForTool("pen", size) });
+        return;
       case "rect":
       case "ellipse":
       case "arrow": {
         const shape = tool === "arrow" ? "arrow" : tool;
         drag.current = { mode: "shape" };
-        setDraft({ id: uid(), type: "shape", shape, x: p.x, y: p.y, w: 0, h: 0, color, size, fill } as ShapeItem);
-        break;
+        setDraft({ id: uid(), type: "shape", shape, x: p.x, y: p.y, w: 0, h: 0, color: inkToStore, size, fill } as ShapeItem);
+        return;
       }
       case "text": {
         const id = uid();
-        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color, fontSize: 20 }] });
-        setSelectedId(id); setEditingId(id); setTool("select");
-        break;
+        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize: 20 }] });
+        setSelectedIds(new Set([id])); editorOpenedAt.current = Date.now(); setEditingId(id); setTool("select");
+        return;
       }
-      case "comment": {
-        onBoardComment(p);
-        break;
-      }
+      case "comment":
+        // The bubble appears here and takes the typing directly.
+        setDraftComment({ x: p.x, y: p.y, text: "" });
+        setEditingPin(null);
+        return;
       case "note": {
         const id = uid();
         setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "note", x: p.x, y: p.y, w: 180, h: 180, text: "", color: "#ffe27a" }] });
-        setSelectedId(id); setEditingId(id); setTool("select");
-        break;
+        setSelectedIds(new Set([id])); editorOpenedAt.current = Date.now(); setEditingId(id); setTool("select");
+        return;
       }
-      default: // select on empty background → deselect + pan
-        setSelectedId(null);
-        drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
+      default:
+        break;
     }
   }
 
   function onHostPointerMove(e: React.PointerEvent) {
     const d = drag.current;
-    if (!d) return;
     const p = screenToWorld(e.clientX, e.clientY);
+
+    if (!d) {
+      if (tool === "select" && !spaceDown) {
+        const h = handleAt(localPoint(e.clientX, e.clientY));
+        setHoverCursor(h ? CURSOR[h] : null);
+      } else if (hoverCursor) setHoverCursor(null);
+      return;
+    }
+
     if (d.mode === "pan") {
       setDoc({ ...docRef.current, camera: { ...docRef.current.camera, x: d.cam.x + (e.clientX - d.sx), y: d.cam.y + (e.clientY - d.sy) } }, false);
-    } else if (d.mode === "draw") {
+      return;
+    }
+    if (d.mode === "draw") {
       setDraft((cur) => (cur && cur.type === "stroke" ? { ...cur, points: [...cur.points, p.x, p.y] } : cur));
-    } else if (d.mode === "shape") {
+      return;
+    }
+    if (d.mode === "shape") {
       setDraft((cur) => (cur && cur.type === "shape" ? { ...cur, w: p.x - cur.x, h: p.y - cur.y } : cur));
-    } else if (d.mode === "move") {
-      const dx = p.x - d.startWorld.x, dy = p.y - d.startWorld.y;
-      setDoc({ ...docRef.current, items: docRef.current.items.map((i) => (i.id === d.id ? translate(d.orig, dx, dy) : i)) }, false);
-    } else if (d.mode === "resize") {
-      const dx = p.x - d.startWorld.x, dy = p.y - d.startWorld.y;
-      setDoc({ ...docRef.current, items: docRef.current.items.map((i) => (i.id === d.id ? resize(d.orig, dx, dy) : i)) }, false);
+      return;
+    }
+    if (d.mode === "marquee") {
+      const box = normalize(d.origin, p);
+      setMarquee(box);
+      const inside = docRef.current.items.filter((i) => overlaps(bbox(i), box)).map((i) => i.id);
+      select(d.additive ? new Set([...d.base, ...inside]) : new Set(inside));
+      return;
+    }
+    if (d.mode === "move") {
+      let dx = p.x - d.origin.x;
+      let dy = p.y - d.origin.y;
+      if (!d.moved && travelled(d.origin, p, docRef.current.camera.zoom) < DRAG_SLOP_PX) return;
+      if (!d.moved) pushHistory();
+      d.moved = true;
+
+      const sel = selRef.current;
+      const box = union(d.snapshot.filter((i) => sel.has(i.id)));
+      if (box) {
+        const moved = { x: box.x + dx, y: box.y + dy, w: box.w, h: box.h };
+        const others = docRef.current.items.filter((i) => !sel.has(i.id)).map(bbox);
+        const snap = snapMove(moved, others, SNAP_PX / docRef.current.camera.zoom);
+        dx += snap.dx;
+        dy += snap.dy;
+        setGuides(snap.guides);
+      }
+      setDoc({ ...docRef.current, items: d.snapshot.map((i) => (sel.has(i.id) ? translate(i, dx, dy) : i)) }, false);
+      return;
+    }
+    if (d.mode === "resize") {
+      const next = resizeRect(d.startBox, d.handle, p.x - d.origin.x, p.y - d.origin.y, MIN_SIZE);
+      const byId = new Map(d.snapshot.map((i) => [i.id, i]));
+      setDoc({
+        ...docRef.current,
+        items: docRef.current.items.map((i) => {
+          const original = byId.get(i.id);
+          return original ? fitTo(original, d.startBox, next) : i;
+        }),
+      }, false);
     }
   }
 
   function onHostPointerUp() {
     const d = drag.current;
     drag.current = null;
+    setDragging(false);
+    setGuides([]);
+    setMarquee(null);
     if (!d) return;
+
     if (d.mode === "draw" && draft && draft.type === "stroke") {
-      if (draft.points.length >= 4) setDoc({ ...docRef.current, items: [...docRef.current.items, draft] });
+      // Keep a single tap: it is a dot, not a mistake.
+      if (draft.points.length >= 2) setDoc({ ...docRef.current, items: [...docRef.current.items, draft] });
       setDraft(null);
-    } else if (d.mode === "shape" && draft && draft.type === "shape") {
+      return;
+    }
+    if (d.mode === "shape" && draft && draft.type === "shape") {
       if (Math.abs(draft.w) > 4 || Math.abs(draft.h) > 4) {
-        setDoc({ ...docRef.current, items: [...docRef.current.items, normRect(draft)] });
+        const made = draft.shape === "arrow" ? draft : normRect(draft);
+        setDoc({ ...docRef.current, items: [...docRef.current.items, made] });
       }
       setDraft(null);
+      return;
     }
+    // Nothing to commit: move and resize already took their undo point at the
+    // start of the gesture, and streamed every frame after it with history off.
   }
 
-  function resize(item: Item, dx: number, dy: number): Item {
-    if (item.type === "stroke") return item;
-    if (item.type === "text") return { ...item, w: Math.max(60, item.w + dx) };
-    if (item.type === "shape" || item.type === "note" || item.type === "media" || item.type === "excerpt") {
-      return { ...item, w: Math.max(20, item.w + dx), h: Math.max(20, item.h + dy) };
-    }
-    return item;
+  /** Text and sticky notes are edited in place; this opens the editor. */
+  function beginEditing(item: Item) {
+    if (item.type !== "text" && item.type !== "note") return false;
+    select(new Set([item.id]));
+    editorOpenedAt.current = Date.now();
+    setEditingId(item.id);
+    return true;
   }
 
-  // --- per-item interactions (select mode) -------------------------------
+  /** A blur arriving with the opening click is not the person leaving. */
+  function onEditorBlur(e: React.FocusEvent<HTMLTextAreaElement>) {
+    if (Date.now() - editorOpenedAt.current < 250) {
+      e.target.focus();
+      return;
+    }
+    setEditingId(null);
+  }
+
+  /** Pointer down on an item, in select mode. */
   function itemPointerDown(e: React.PointerEvent, item: Item) {
     if (tool !== "select" || spaceDown) return;
     e.stopPropagation();
-    setSelectedId(item.id);
-    hostRef.current!.setPointerCapture(e.pointerId);
-    drag.current = { mode: "move", id: item.id, orig: item, startWorld: screenToWorld(e.clientX, e.clientY) };
-  }
 
-  function handlePointerDown(e: React.PointerEvent, item: Item) {
-    e.stopPropagation();
-    hostRef.current!.setPointerCapture(e.pointerId);
-    drag.current = { mode: "resize", id: item.id, orig: item, startWorld: screenToWorld(e.clientX, e.clientY) };
-  }
+    // Detect the double-click ourselves rather than relying on the dblclick
+    // event: capturing the pointer on the host (which we must do, so a drag
+    // that leaves the item keeps tracking) redirects the click to the host,
+    // so dblclick never reaches the text or note and neither could be edited.
+    const now = e.timeStamp || Date.now();
+    const intent = decidePress({
+      tool, middleButton: false, spaceDown, locked, shiftKey: e.shiftKey,
+      hit: item, handle: null, isDouble: isDoubleClick(lastClick.current, item.id, now),
+    });
+    lastClick.current = { id: item.id, at: now };
+    if (intent?.kind === "edit" && beginEditing(item)) return;
 
-  function commitEditing() {
-    setEditingId(null);
+    hostRef.current!.setPointerCapture(e.pointerId);
+
+    let next: Set<string>;
+    if (e.shiftKey) {
+      next = new Set(selectedIds);
+      next.has(item.id) ? next.delete(item.id) : next.add(item.id);
+    } else {
+      // Clicking inside an existing multi-selection keeps it, so the whole
+      // group can be dragged in one gesture.
+      next = selectedIds.has(item.id) ? new Set(selectedIds) : new Set([item.id]);
+    }
+    select(next);
+    drag.current = {
+      mode: "move",
+      origin: screenToWorld(e.clientX, e.clientY),
+      snapshot: docRef.current.items,
+      moved: false,
+    };
+    setDragging(true);
   }
 
   function setItemText(id: string, text: string) {
     setDoc({ ...docRef.current, items: docRef.current.items.map((i) => (i.id === id && (i.type === "text" || i.type === "note") ? { ...i, text } : i)) }, false);
   }
 
+  // World → screen, for laying blocks out in device pixels.
+  const sx = (x: number) => x * cam.zoom + cam.x;
+  const sy = (y: number) => y * cam.zoom + cam.y;
+
+  /**
+   * The world rectangle currently visible, which becomes the SVG viewBox.
+   *
+   * This is what makes the board vector rather than raster. The old layout put
+   * everything inside a div carrying `transform: scale(zoom)`, and a CSS scale
+   * rasterises its whole subtree once at 1x and then stretches that bitmap —
+   * so strokes, arrows, text, images and even the selection outline turned to
+   * mush the moment you zoomed in. Handing the camera to the SVG as a viewBox
+   * instead means the vectors are re-rendered at device resolution at every
+   * zoom level, and laying the DOM blocks out in screen pixels means their
+   * text and images are, too.
+   */
+  const viewBox = `${-cam.x / cam.zoom} ${-cam.y / cam.zoom} ${Math.max(1, view.w / cam.zoom)} ${Math.max(1, view.h / cam.zoom)}`;
+
   const items = draft ? [...doc.items, draft] : doc.items;
   const vectors = items.filter((i) => i.type === "stroke" || i.type === "shape");
   const blocks = items.filter((i) =>
     i.type === "text" || i.type === "note" || i.type === "media" || i.type === "excerpt");
 
-  const cursor = spaceDown || tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
+  const cursor = hoverCursor
+    ?? (spaceDown || tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair");
 
   /** A media card is a door: double-click opens it in the focus viewer. */
   function openMedia(e: React.MouseEvent, it: Item) {
@@ -265,6 +620,7 @@ export default function Canvas({
       onPointerDown={onHostPointerDown}
       onPointerMove={onHostPointerMove}
       onPointerUp={onHostPointerUp}
+      onPointerCancel={onHostPointerUp}
     >
       {/* dotted infinite background follows the camera */}
       <div
@@ -275,41 +631,51 @@ export default function Canvas({
         }}
       />
 
-      <div className="world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.zoom})`, transformOrigin: "0 0" }}>
-        {/* vector layer: strokes + shapes */}
-        <svg className="vector-layer" overflow="visible" width="0" height="0">
+      {/* Vector layer: viewport-sized, camera carried by the viewBox, so every
+          stroke and outline is re-rasterised at device resolution as you zoom
+          rather than being a scaled-up picture of itself. */}
+      <svg className="vector-layer" width={view.w} height={view.h} viewBox={viewBox} preserveAspectRatio="none">
           {vectors.map((it) =>
             it.type === "stroke" ? (
               <g key={it.id}>
                 {/* wide invisible hit area for easy selection */}
-                <path d={strokePath(it.points)} stroke="transparent" strokeWidth={Math.max(it.size, 14)} fill="none" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
-                <path d={strokePath(it.points)} stroke={it.color} strokeWidth={it.size} fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+                <path d={polylinePath(it.points)} stroke="transparent" strokeWidth={Math.max(it.size, 14)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
+                {it.points.length >= 4 ? (
+                  <path d={inkOutline(it.points, it.size)} fill={ink(it.color)} style={{ pointerEvents: "none" }} />
+                ) : (
+                  // A lone dot has no outline to fill; draw the nib itself.
+                  <circle cx={it.points[0]} cy={it.points[1]} r={Math.max(0.5, it.size / 2)} fill={ink(it.color)} style={{ pointerEvents: "none" }} />
+                )}
               </g>
             ) : (
-              <ShapeView key={it.id} item={it as ShapeItem} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
+              <ShapeView key={it.id} item={it as ShapeItem} ink={ink} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
             )
           )}
         </svg>
 
-        {/* block layer: text / notes / media */}
+      {/* Block layer: laid out in screen pixels. Text is rendered by the font
+          engine at its on-screen size, and an image is drawn from its own
+          pixels — neither is a bitmap of a smaller version blown up. */}
+      <div className="world">
         {blocks.map((it) => {
           const b = bbox(it);
-          const selected = it.id === selectedId;
+          const selected = selectedIds.has(it.id);
+          const z = cam.zoom;
           return (
-            <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: b.x, top: b.y, width: b.w, ...(it.type !== "text" ? { height: b.h } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
+            <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: sx(b.x), top: sy(b.y), width: b.w * z, ...(it.type !== "text" ? { height: b.h * z } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
-                  <textarea autoFocus className="text-edit" style={{ color: it.color, fontSize: it.fontSize }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={commitEditing} onPointerDown={(e) => e.stopPropagation()} />
+                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
                 ) : (
-                  <div className="text-view" style={{ color: it.color, fontSize: it.fontSize }} onDoubleClick={() => { setEditingId(it.id); setSelectedId(it.id); }}>
+                  <div className="text-view" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}>
                     {it.text || <span className="placeholder">Text</span>}
                   </div>
                 )
               )}
               {it.type === "note" && (
-                <div className="note" style={{ background: it.color }} onDoubleClick={() => { setEditingId(it.id); setSelectedId(it.id); }}>
+                <div className="note" style={{ background: it.color, fontSize: 14 * cam.zoom, borderRadius: 6 * cam.zoom }}>
                   {editingId === it.id ? (
-                    <textarea autoFocus className="note-edit" value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={commitEditing} onPointerDown={(e) => e.stopPropagation()} />
+                    <textarea autoFocus className="note-edit" style={{ fontSize: 14 * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
                   ) : (
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
                   )}
@@ -365,8 +731,6 @@ export default function Canvas({
                   )}
                 </div>
               )}
-              {selected && it.type !== "text" && <div className="resize-handle" onPointerDown={(e) => handlePointerDown(e, it)} />}
-              {selected && it.type === "text" && <div className="resize-handle" onPointerDown={(e) => handlePointerDown(e, it)} />}
             </div>
           );
         })}
@@ -376,25 +740,99 @@ export default function Canvas({
           <button
             key={a.id}
             className="board-pin"
-            style={{ left: a.anchor.worldX ?? 0, top: a.anchor.worldY ?? 0, background: a.color }}
+            style={{ left: sx(a.anchor.worldX ?? 0), top: sy(a.anchor.worldY ?? 0), background: a.color }}
             title={`${a.author}: ${a.text}`}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onOpenAnnotation(a)}
+            onClick={() => { setEditingPin({ id: a.id, text: a.text }); setDraftComment(null); }}
+            onDoubleClick={() => onOpenAnnotation(a)}
           >
-            <span className="board-pin-text">{a.text}</span>
+            {editingPin?.id === a.id ? (
+              <textarea
+                autoFocus
+                className="pin-edit"
+                value={editingPin.text}
+                onChange={(e) => setEditingPin({ id: a.id, text: e.target.value })}
+                onPointerDown={(e) => e.stopPropagation()}
+                onBlur={() => { onEditBoardComment(a, editingPin.text); setEditingPin(null); }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Escape") { setEditingPin(null); }
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+                }}
+              />
+            ) : (
+              <span className="board-pin-text">{a.text}</span>
+            )}
           </button>
         ))}
 
-        {/* selection outline for vector items */}
-        {selectedId && vectors.find((v) => v.id === selectedId) && (() => {
-          const it = vectors.find((v) => v.id === selectedId)!;
+        {/* A new bubble, typed into where it was dropped. */}
+        {draftComment && (
+          <div
+            className="board-pin is-draft"
+            style={{ left: sx(draftComment.x), top: sy(draftComment.y), background: "#2563eb" }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <textarea
+              autoFocus
+              className="pin-edit"
+              placeholder="What's here?"
+              value={draftComment.text}
+              onChange={(e) => setDraftComment({ ...draftComment, text: e.target.value })}
+              onBlur={() => { onBoardComment(draftComment, draftComment.text); setDraftComment(null); }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") { setDraftComment(null); }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+              }}
+            />
+          </div>
+        )}
+
+        {/* Alignment guides, drawn only while something is actually moving. */}
+        {guides.map((g, n) => (
+          <div
+            key={n}
+            className="snap-guide"
+            style={g.axis === "x"
+              ? { left: sx(g.at), top: sy(g.from), height: (g.to - g.from) * cam.zoom, width: 0 }
+              : { top: sy(g.at), left: sx(g.from), width: (g.to - g.from) * cam.zoom, height: 0 }}
+          />
+        ))}
+
+        {/* One outline per selected item, so you can see what is in the set. */}
+        {selectedIds.size > 1 && selectedItems.map((it) => {
           const b = bbox(it);
-          return (
-            <div className="vector-selection" style={{ left: b.x, top: b.y, width: b.w, height: b.h }}>
-              {it.type === "shape" && <div className="resize-handle" onPointerDown={(e) => handlePointerDown(e, it)} />}
-            </div>
-          );
-        })()}
+          return <div key={it.id} className="member-outline" style={{ left: sx(b.x), top: sy(b.y), width: b.w * cam.zoom, height: b.h * cam.zoom }} />;
+        })}
+
+        {/* The selection box: one frame around everything held, with handles
+            on all eight sides. Resizing it maps every member through the same
+            transform, so a group scales as a group. */}
+        {selectionBox && !dragging && (
+          <div
+            className="selection-box"
+            style={{ left: sx(selectionBox.x), top: sy(selectionBox.y), width: selectionBox.w * cam.zoom, height: selectionBox.h * cam.zoom }}
+          >
+            {/* No counter-scaling any more: in screen space a handle is simply
+                the size it is drawn. */}
+            {HANDLES.map((h) => {
+              const p = handlePoint({ x: 0, y: 0, w: selectionBox.w * cam.zoom, h: selectionBox.h * cam.zoom }, h);
+              return (
+                <div
+                  key={h}
+                  className="resize-handle"
+                  style={{ left: p.x, top: p.y, cursor: CURSOR[h], transform: "translate(-50%, -50%)" }}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {/* rubber band */}
+        {marquee && (
+          <div className="marquee" style={{ left: sx(marquee.x), top: sy(marquee.y), width: marquee.w * cam.zoom, height: marquee.h * cam.zoom }} />
+        )}
       </div>
     </div>
   );
@@ -405,11 +843,12 @@ function isTyping(e: KeyboardEvent): boolean {
   return t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
 }
 
-function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
+function ShapeView({ item, ink, selectable, onDown }: { item: ShapeItem; ink: (c: string) => string; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
   const s = normRect(item);
+  const painted = ink(item.color);
   const filled = !!s.fill && s.fill !== "none";
   const common = {
-    stroke: s.size > 0 ? s.color : "none",
+    stroke: s.size > 0 ? painted : "none",
     strokeWidth: s.size,
     // An unfilled shape still needs a transparent fill so it stays clickable
     // across its whole body rather than only on the one-pixel outline.
@@ -427,8 +866,8 @@ function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: 
   const a2x = x2 - head * Math.cos(ang + Math.PI / 7), a2y = y2 - head * Math.sin(ang + Math.PI / 7);
   return (
     <g style={{ pointerEvents: selectable ? "visible" : "none", cursor: "move" }} onPointerDown={onDown}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={item.color} strokeWidth={item.size} strokeLinecap="round" />
-      <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={item.color} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={painted} strokeWidth={item.size} strokeLinecap="round" />
+      <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={painted} />
       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={Math.max(item.size, 14)} />
     </g>
   );

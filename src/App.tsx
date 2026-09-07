@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
 import Sidebar from "./Sidebar";
+import ShortcutsOverlay from "./ShortcutsOverlay";
 import MediaViewer from "./MediaViewer";
 import CommentsPanel from "./CommentsPanel";
 import {
@@ -11,6 +12,7 @@ import {
   saveTextAs, saveBytesAs, pickNewCanvasPath, type DirEntry,
 } from "./storage";
 import { getTheme, applyTheme, isDark, isDefaultInk, INK, type Theme } from "./theme";
+import { applyFill, applyInk, applyWidth } from "./interaction";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -41,7 +43,10 @@ export default function App() {
   const [color, setColor] = useState<string>(() => (isDark(getTheme()) ? INK.dark : INK.light));
   const [size, setSize] = useState(3);
   const [fill, setFill] = useState("none");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  /** Camera lock: freezes pan and zoom so a stray gesture cannot lose the board. */
+  const [locked, setLocked] = useState(false);
 
   // --- annotation layer --------------------------------------------------
   const [me, setMe] = useState<Identity>(() => getIdentity());
@@ -65,7 +70,8 @@ export default function App() {
 
   // --- appearance --------------------------------------------------------
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
-  useEffect(() => { applyTheme(theme); }, [theme]);
+  const [dark, setDark] = useState<boolean>(() => isDark(getTheme()));
+  useEffect(() => { applyTheme(theme); setDark(isDark(theme)); }, [theme]);
 
   // Follow the palette with the default ink, but never overrule a colour the
   // person picked themselves.
@@ -77,7 +83,10 @@ export default function App() {
   useEffect(() => {
     if (theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => setColor((c) => (isDefaultInk(c) ? (mq.matches ? INK.dark : INK.light) : c));
+    const onChange = () => {
+      setDark(mq.matches);
+      setColor((c) => (isDefaultInk(c) ? (mq.matches ? INK.dark : INK.light) : c));
+    };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, [theme]);
@@ -123,6 +132,24 @@ export default function App() {
   }, []);
 
   // --- doc mutation with history ----------------------------------------
+
+  /**
+   * Mark the board as it stands as an undo point.
+   *
+   * A drag streams dozens of intermediate states, so it has to be applied with
+   * history off — but then the gesture leaves no undo step at all, and calling
+   * setDoc(…, true) at the *end* records the already-moved board as the thing
+   * to go back to, which makes undo a no-op. The undo point has to be taken
+   * before the first pixel moves, which is what this is for.
+   */
+  const pushHistory = useCallback(() => {
+    if (!docRef.current) return;
+    past.current.push(JSON.stringify(docRef.current));
+    if (past.current.length > 80) past.current.shift();
+    future.current = [];
+    setHist({ u: past.current.length, r: 0 });
+  }, []);
+
   const setDoc = useCallback((next: CanvasDoc, history = true) => {
     if (history && docRef.current) {
       past.current.push(JSON.stringify(docRef.current));
@@ -210,13 +237,43 @@ export default function App() {
     persist({ ...a, deleted: true, updatedAt: Date.now() });
   }, [persist]);
 
+  // --- style controls ----------------------------------------------------
+
+  /**
+   * A style control does two jobs, and doing only the first is why "no fill"
+   * and the colour swatches appeared dead: it sets the default for the *next*
+   * thing you draw, and it restyles whatever is selected right now. Every
+   * canvas app works this way, and without the second half the controls look
+   * broken rather than merely limited.
+   */
+  const restyle = useCallback((patch: (it: Item) => Item) => {
+    const d = docRef.current;
+    if (!d || !selectedIds.size) return;
+    setDoc({ ...d, items: d.items.map((i) => (selectedIds.has(i.id) ? patch(i) : i)) });
+  }, [selectedIds, setDoc]);
+
+  const chooseColor = useCallback((c: string) => {
+    setColor(c);
+    restyle((i) => applyInk(i, c));
+  }, [restyle]);
+
+  const chooseSize = useCallback((n: number) => {
+    setSize(n);
+    restyle((i) => applyWidth(i, n));
+  }, [restyle]);
+
+  const chooseFill = useCallback((c: string) => {
+    setFill(c);
+    restyle((i) => applyFill(i, c));
+  }, [restyle]);
+
   // --- file / folder ops -------------------------------------------------
   const openCanvas = useCallback(async (path: string) => {
     const text = await storage.readText(path);
     try {
       const d = JSON.parse(text) as CanvasDoc;
       past.current = []; future.current = []; setHist({ u: 0, r: 0 });
-      setSelectedId(null);
+      setSelectedIds(new Set());
       setViewerItemId(null);
       setCanvasPath(path);
       setDocState(d);
@@ -243,7 +300,7 @@ export default function App() {
     setCanvasPath(path);
     setDocState(d);
     setAnnotations([]);
-    setSelectedId(null);
+    setSelectedIds(new Set());
     setLibraryOpen(false);
   }
 
@@ -358,7 +415,7 @@ export default function App() {
     const target = doc?.items.find((i) => i.id === a.anchor.itemId);
     if (target && target.type === "media") { openViewer(target.id, a.id); return; }
     // A board-level note: select it and centre the camera on it instead.
-    setSelectedId(a.anchor.itemId);
+    setSelectedIds(new Set([a.anchor.itemId]));
     if (a.anchor.worldX !== undefined && docRef.current && areaRef.current) {
       const r = areaRef.current.getBoundingClientRect();
       const z = docRef.current.camera.zoom;
@@ -396,7 +453,7 @@ export default function App() {
     setDoc({ ...d, items: [...d.items, excerpt] });
     setViewerItemId(null);
     setFocusId(null);
-    setSelectedId(excerpt.id);
+    setSelectedIds(new Set([excerpt.id]));
     say(`Added to canvas — click ↩ ${e.sourceName} to jump back`);
   }, [setDoc, me.color, say]);
 
@@ -414,14 +471,25 @@ export default function App() {
   }, [say]);
 
   /** The comment tool: click anywhere on the canvas to leave a note there. */
-  const addBoardComment = useCallback(async (world: { x: number; y: number }) => {
-    const text = await askText("Note on this spot", { placeholder: "What's here?", okLabel: "Add note" });
+  /**
+   * A note dropped on the board. No dialog: the canvas puts an empty bubble
+   * where you clicked and you type into the bubble itself. A modal asking
+   * "what's here?" makes you describe a place you are already pointing at,
+   * in a box that covers it.
+   */
+  const addBoardComment = useCallback((world: { x: number; y: number }, text: string) => {
     setTool("select");
-    if (!text) return;
+    if (!text.trim()) return;
     addAnnotation(newAnnotation(me, {
       itemId: "board", x: 0, y: 0, w: 0, h: 0, worldX: world.x, worldY: world.y,
-    }, text));
+    }, text.trim()));
   }, [addAnnotation, me]);
+
+  /** Editing a bubble in place, rather than in the side panel. */
+  const editBoardComment = useCallback((a: Annotation, text: string) => {
+    if (!text.trim()) { deleteAnnotation(a); return; }
+    updateAnnotation({ ...a, text: text.trim() });
+  }, [deleteAnnotation, updateAnnotation]);
 
   async function renameMe() {
     const name = await askText("Your name", {
@@ -571,6 +639,7 @@ export default function App() {
       // The viewer and the library own the keyboard while they are open.
       if (libraryOpen && e.key === "Escape" && docRef.current) { setLibraryOpen(false); return; }
       if (viewerItemId || libraryOpen || typing || e.metaKey || e.ctrlKey) return;
+      if (e.key === "?") { setShowShortcuts((v) => !v); return; }
       const map: Record<string, Tool> = {
         v: "select", h: "hand", p: "pen", r: "rect", o: "ellipse",
         a: "arrow", t: "text", n: "note", c: "comment",
@@ -639,13 +708,16 @@ export default function App() {
         {doc && (
           <Toolbar
             tool={tool} setTool={setTool}
-            color={color} setColor={setColor}
-            size={size} setSize={setSize}
-            fill={fill} setFill={setFill}
+            color={color} setColor={chooseColor}
+            size={size} setSize={chooseSize}
+            fill={fill} setFill={chooseFill}
+            hasSelection={selectedIds.size > 0}
             onImportMedia={importMedia}
             onUndo={undo} onRedo={redo}
             canUndo={hist.u > 0} canRedo={hist.r > 0}
             onZoomFit={zoomFit}
+            locked={locked} onToggleLock={() => setLocked((v) => !v)}
+            onShowShortcuts={() => setShowShortcuts(true)}
             notesOpen={panelOpen}
             noteCount={annotations.filter((a) => !a.resolved).length}
             onToggleNotes={() => setPanelOpen((v) => !v)}
@@ -668,15 +740,16 @@ export default function App() {
           {doc ? (
             <>
               <Canvas
-                doc={doc} setDoc={setDoc}
+                doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark} locked={locked}
                 tool={tool} setTool={setTool}
                 color={color} size={size} fill={fill}
-                selectedId={selectedId} setSelectedId={setSelectedId}
+                selectedIds={selectedIds} setSelectedIds={setSelectedIds}
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}
                 onOpenMedia={openViewer}
                 onOpenExcerptSource={openExcerptSource}
                 onBoardComment={addBoardComment}
+                onEditBoardComment={editBoardComment}
                 onOpenAnnotation={openAnnotation}
               />
               <div className="statusbar">
@@ -740,6 +813,7 @@ export default function App() {
         </div>
       )}
 
+      {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       <DialogHost />
 
       {toast && <div className="toast">{toast}</div>}
