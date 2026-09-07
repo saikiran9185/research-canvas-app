@@ -79,6 +79,21 @@ check("a second press on text or a note opens its editor", () => {
   assert.equal(press({ hit: note, isDouble: true }).kind, "edit");
 });
 
+check("clicking already-selected text opens it, without needing a double-click", () => {
+  // The route that does not depend on two presses landing close enough in
+  // time — which is what kept breaking.
+  assert.equal(press({ hit: text, alreadySelected: true }).kind, "edit");
+  assert.equal(press({ hit: note, alreadySelected: true }).kind, "edit");
+});
+
+check("clicking already-selected anything else still moves it", () => {
+  assert.equal(press({ hit: shape, alreadySelected: true }).kind, "move");
+});
+
+check("the first click on unselected text selects rather than edits", () => {
+  assert.equal(press({ hit: text }).kind, "move");
+});
+
 check("a second press on a shape is still a move, not an edit", () => {
   assert.equal(press({ hit: shape, isDouble: true }).kind, "move");
 });

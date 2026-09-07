@@ -594,10 +594,17 @@ export default function Canvas({
     // event: capturing the pointer on the host (which we must do, so a drag
     // that leaves the item keeps tracking) redirects the click to the host,
     // so dblclick never reaches the text or note and neither could be edited.
-    const now = e.timeStamp || Date.now();
+    // One clock. `e.timeStamp` is milliseconds since page load (~1e5) and
+    // Date.now() is epoch (~1e12); the old `e.timeStamp || Date.now()` mixed
+    // them, and a single fallback poisoned lastClick with a number twelve
+    // orders of magnitude out — after which no two presses ever compared as a
+    // double-click again, for the rest of the session.
+    const now = Date.now();
     const intent = decidePress({
       tool, middleButton: false, spaceDown, locked, shiftKey: e.shiftKey,
-      hit: item, handle: null, isDouble: isDoubleClick(lastClick.current, item.id, now),
+      hit: item, handle: null,
+      isDouble: isDoubleClick(lastClick.current, item.id, now),
+      alreadySelected: selectedIds.has(item.id) && selectedIds.size === 1,
     });
     lastClick.current = { id: item.id, at: now };
     if (intent?.kind === "edit" && beginEditing(item)) return;

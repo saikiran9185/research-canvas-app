@@ -21,6 +21,8 @@ export type Intent =
   | { kind: "place"; tool: Extract<Tool, "text" | "note" | "comment"> };
 
 export interface PressContext {
+  /** Already selected — a press on it means "edit", not "select it again". */
+  alreadySelected?: boolean;
   tool: Tool;
   /** Middle button, or space held — both mean "pan whatever the tool is". */
   middleButton: boolean;
@@ -59,7 +61,15 @@ export function decidePress(c: PressContext): Intent | null {
   if (c.hit && !c.hit.locked) {
     // A second click on text or a note opens its editor rather than starting
     // another drag of something you are already holding.
-    if (c.isDouble && (c.hit.type === "text" || c.hit.type === "note")) return { kind: "edit" };
+    // Text opens for editing on a double-click, and also on a plain click when
+    // it is ALREADY selected — the way every canvas tool behaves. That second
+    // path matters more than it looks: double-click detection depends on two
+    // presses landing close enough in time on the same element, which is
+    // fragile, and this gives editing a route that does not depend on it at
+    // all.
+    if ((c.isDouble || c.alreadySelected) && (c.hit.type === "text" || c.hit.type === "note")) {
+      return { kind: "edit" };
+    }
     return { kind: "move" };
   }
   return { kind: "marquee", additive: c.shiftKey };
