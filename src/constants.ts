@@ -154,3 +154,9 @@ export const NIB = {
 /** Widths offered by the toolbar, in world units. None of them is zero: a
  *  zero-width pen is not a thin line, it is an invisible one. */
 export const NIB_SIZES = [1, 2, 4, 8, 16] as const;
+
+
+/** Text sizes offered by the toolbar, in world units. A scale, not a slider:
+ *  the point of a board is that sizes group things, and free values make
+ *  every label a slightly different size than every other one. */
+export const TEXT_SIZES = [14, 20, 28, 40, 64] as const;

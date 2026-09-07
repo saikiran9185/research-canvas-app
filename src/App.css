@@ -1099,3 +1099,18 @@ body {
   font-size: var(--text-xs); color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+
+/* Text sizes, shown at their own scale so the choice is the preview. */
+.text-size {
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--muted); cursor: pointer; line-height: 1;
+}
+.text-size:nth-child(1) { font-size: 10px; }
+.text-size:nth-child(2) { font-size: 12px; }
+.text-size:nth-child(3) { font-size: 14px; }
+.text-size:nth-child(4) { font-size: 17px; }
+.text-size:nth-child(5) { font-size: 20px; }
+.text-size:hover { background: var(--bg); color: var(--text); }
+.text-size.active { border-color: var(--accent); background: var(--bg); color: var(--accent); }

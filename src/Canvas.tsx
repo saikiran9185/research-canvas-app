@@ -38,6 +38,8 @@ interface Props {
   color: string;
   size: number;
   fill: string;
+  /** Size for new text, in world units. */
+  fontSize: number;
   /** Selection is a set: a board is not usable if you can only ever hold one
    *  thing at a time. */
   selectedIds: Set<string>;
@@ -75,7 +77,7 @@ type Drag =
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
+  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, fontSize, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
   onPasteFiles, onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
@@ -370,7 +372,7 @@ export default function Canvas({
       }
       case "text": {
         const id = uid();
-        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize: 20 }] });
+        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize }] });
         setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }
@@ -526,11 +528,33 @@ export default function Canvas({
       // group can be dragged in one gesture.
       next = selectedIds.has(item.id) ? new Set(selectedIds) : new Set([item.id]);
     }
+    // Option-drag leaves a copy behind. Duplicating up front and dragging the
+    // COPIES means the originals stay exactly where they were, which is what
+    // makes it feel like pulling a copy out rather than moving a thing and
+    // hoping something was left.
+    let items = docRef.current.items;
+    if (e.altKey) {
+      const regroup = new Map<string, string>();
+      const copies = items.filter((i) => next.has(i.id)).map((i) => {
+        const copy: Item = { ...i, id: uid() };
+        if (!i.groupId) return copy;
+        if (!regroup.has(i.groupId)) regroup.set(i.groupId, uid());
+        return { ...copy, groupId: regroup.get(i.groupId) };
+      });
+      if (copies.length) {
+        items = [...items, ...copies];
+        pushHistory();
+        setDoc({ ...docRef.current, items }, false);
+        next = new Set(copies.map((c) => c.id));
+        select(next);
+      }
+    }
+
     select(next);
     drag.current = {
       mode: "move",
       origin: screenToWorld(e.clientX, e.clientY),
-      snapshot: docRef.current.items,
+      snapshot: items,
       moved: false,
     };
     setDragging(true);
@@ -766,18 +790,12 @@ export default function Canvas({
             onDoubleClick={() => onOpenAnnotation(a)}
           >
             {editingPin?.id === a.id ? (
-              <textarea
-                autoFocus
+              <InlineEditor
                 className="pin-edit"
                 value={editingPin.text}
-                onChange={(e) => setEditingPin({ id: a.id, text: e.target.value })}
-                onPointerDown={(e) => e.stopPropagation()}
-                onBlur={() => { onEditBoardComment(a, editingPin.text); setEditingPin(null); }}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Escape") { setEditingPin(null); }
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
-                }}
+                onChange={(v) => setEditingPin({ id: a.id, text: v })}
+                onDone={() => { onEditBoardComment(a, editingPin.text); setEditingPin(null); }}
+                submitOnEnter
               />
             ) : (
               <span className="board-pin-text">{a.text}</span>
@@ -792,18 +810,18 @@ export default function Canvas({
             style={{ left: sx(draftComment.x), top: sy(draftComment.y), background: "#2563eb" }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            <textarea
-              autoFocus
+            {/* InlineEditor, not a bare textarea: it claims the keyboard for
+                as long as it is open. Without that, the first letter typed
+                into a new comment reached the global shortcuts instead — so
+                typing "v" switched to the select tool and the comment was
+                never written. */}
+            <InlineEditor
               className="pin-edit"
               placeholder="What's here?"
               value={draftComment.text}
-              onChange={(e) => setDraftComment({ ...draftComment, text: e.target.value })}
-              onBlur={() => { onBoardComment(draftComment, draftComment.text); setDraftComment(null); }}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Escape") { setDraftComment(null); }
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
-              }}
+              onChange={(v) => setDraftComment({ ...draftComment, text: v })}
+              onDone={() => { onBoardComment(draftComment, draftComment.text); setDraftComment(null); }}
+              submitOnEnter
             />
           </div>
         )}

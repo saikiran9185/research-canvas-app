@@ -43,6 +43,7 @@ export default function App() {
   const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState<string>(() => (isDark(getTheme()) ? INK.dark : INK.light));
   const [size, setSize] = useState(3);
+  const [fontSize, setFontSize] = useState(20);
   const [fill, setFill] = useState("none");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -270,6 +271,11 @@ export default function App() {
   const chooseSize = useCallback((n: number) => {
     setSize(n);
     restyle((i) => applyWidth(i, n));
+  }, [restyle]);
+
+  const chooseFontSize = useCallback((n: number) => {
+    setFontSize(n);
+    restyle((i) => (i.type === "text" ? { ...i, fontSize: n } : i));
   }, [restyle]);
 
   const chooseFill = useCallback((c: string) => {
@@ -780,6 +786,7 @@ export default function App() {
             color={color} setColor={chooseColor}
             size={size} setSize={chooseSize}
             fill={fill} setFill={chooseFill}
+            fontSize={fontSize} setFontSize={chooseFontSize}
             hasSelection={selectedIds.size > 0}
             onImportMedia={importMedia}
             onUndo={undo} onRedo={redo}
@@ -811,7 +818,7 @@ export default function App() {
               <Canvas
                 doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark} locked={locked}
                 tool={tool} setTool={setTool}
-                color={color} size={size} fill={fill}
+                color={color} size={size} fill={fill} fontSize={fontSize}
                 selectedIds={selectedIds} setSelectedIds={setSelectedIds}
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}

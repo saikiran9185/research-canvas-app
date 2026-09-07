@@ -12,6 +12,8 @@ interface Props {
   setSize: (n: number) => void;
   fill: string;
   setFill: (c: string) => void;
+  fontSize: number;
+  setFontSize: (n: number) => void;
   onImportMedia: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -44,6 +46,7 @@ const SWATCHES = ["#111827", "#e7e9ec", "#ef4444", "#f59e0b", "#10b981", "#3b82f
 // Softer tints for fills, so a filled shape sits behind its own outline
 // instead of shouting over the media underneath it.
 const NIBS = [1, 2, 4, 8, 16];
+const TEXT_SIZES = [14, 20, 28, 40, 64];
 
 const FILLS = ["#fee2e2", "#fef3c7", "#d1fae5", "#dbeafe", "#ede9fe", "#fce7f3", "#e5e7eb"];
 
@@ -234,6 +237,26 @@ export default function Toolbar(p: Props) {
               ))}
             </div>
           </div>
+
+          {/* Text size, shown when it can do something: the text tool is armed,
+              or text is selected. A scale rather than a slider, so labels on a
+              board group by size instead of each being slightly its own. */}
+          {p.tool === "text" || p.hasSelection ? (
+            <div className="style-section">
+              <span className="style-label">Text size</span>
+              <div className="size-row">
+                {TEXT_SIZES.map((n) => (
+                  <button
+                    key={n}
+                    className={"text-size" + (p.fontSize === n ? " active" : "")}
+                    onClick={() => p.setFontSize(n)}
+                    title={`${n}px`}
+                    aria-pressed={p.fontSize === n}
+                  >A</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="style-section">
             <span className="style-label">Fill</span>
