@@ -86,3 +86,57 @@ export function nameForPastedImage(type: string, at = new Date()): string {
   return `Pasted ${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())} `
        + `${p(at.getHours())}.${p(at.getMinutes())}.${p(at.getSeconds())}.${ext}`;
 }
+
+// ---- youtube ------------------------------------------------------------
+
+/**
+ * The video id inside a YouTube URL, or null.
+ *
+ * YouTube has accumulated a lot of shapes over the years — youtu.be short
+ * links, /watch?v=, /embed/, /shorts/, /live/ — and a research board collects
+ * links from all of them, so recognising only the canonical one would leave
+ * most pastes as plain cards for no reason a person could see.
+ */
+export function youtubeId(raw: string): string | null {
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+
+  const host = u.hostname.replace(/^(www|m|music)\./, "");
+  const ok = (id: string | undefined | null) =>
+    id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+
+  if (host === "youtu.be") return ok(u.pathname.slice(1).split("/")[0]);
+  if (host !== "youtube.com" && host !== "youtube-nocookie.com") return null;
+
+  if (u.pathname === "/watch") return ok(u.searchParams.get("v"));
+  const m = u.pathname.match(/^\/(embed|shorts|live|v)\/([^/?#]+)/);
+  return m ? ok(m[2]) : null;
+}
+
+/** Where a link says to start, in whole seconds. `?t=1m30s` and `?t=90` both
+ *  appear in the wild, and a timestamped link is usually timestamped on
+ *  purpose — losing it loses the reason it was saved. */
+export function youtubeStart(raw: string): number {
+  let u: URL;
+  try { u = new URL(raw); } catch { return 0; }
+  const t = u.searchParams.get("t") ?? u.searchParams.get("start") ?? u.hash.match(/[?&]t=([^&]+)/)?.[1];
+  if (!t) return 0;
+  if (/^\d+$/.test(t)) return Number(t);
+  const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
+  if (!m || (!m[1] && !m[2] && !m[3])) return 0;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
+
+/**
+ * The embed address for a video.
+ *
+ * youtube-nocookie.com deliberately: a research board should not be dropping
+ * tracking cookies for every clip someone pinned to it. `origin` is omitted
+ * because the app is not served from a web origin the player would accept.
+ */
+export function youtubeEmbed(id: string, start = 0): string {
+  const params = new URLSearchParams({ rel: "0", modestbranding: "1", playsinline: "1" });
+  if (start > 0) params.set("start", String(start));
+  return `https://www.youtube-nocookie.com/embed/${id}?${params}`;
+}

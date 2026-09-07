@@ -10,6 +10,7 @@ import type { MediaItem } from "../types";
 import { useMediaSrc } from "../media";
 import { renderPage } from "../pdf";
 import { loadDoc } from "../doc";
+import { youtubeEmbed } from "../paste";
 
 /**
  * First-page preview of a PDF card.
@@ -91,5 +92,49 @@ export function MediaAudio({ item }: { item: MediaItem }) {
         ? <div className="pdf-failed">Could not load this file</div>
         : <audio src={src} onError={onError} controls />}
     </div>
+  );
+}
+
+
+/**
+ * A YouTube link, playing on the board.
+ *
+ * The player is only mounted once you ask for it. A board can hold twenty
+ * clips, and twenty iframes is twenty network connections and twenty players
+ * competing for the machine before you have watched any of them — so until
+ * then it is a poster with a play button, which costs one image.
+ *
+ * It carries its own controls because the point on a research board is the
+ * moment, not the video: the timeline is how you get to the frame you pinned
+ * a note to.
+ */
+export function YouTubeCard({ id, start, label }: { id: string; start: number; label: string }) {
+  const [playing, setPlaying] = useState(false);
+
+  if (!playing) {
+    return (
+      <button
+        className="yt-poster"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={() => setPlaying(true)}
+        title={`Play — ${label}`}
+      >
+        <img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="" draggable={false} />
+        <span className="yt-play" aria-hidden>▶</span>
+        <span className="yt-label">{label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <iframe
+      className="yt-frame"
+      src={youtubeEmbed(id, start)}
+      title={label}
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+      allowFullScreen
+      referrerPolicy="strict-origin-when-cross-origin"
+      onPointerDown={(e) => e.stopPropagation()}
+    />
   );
 }

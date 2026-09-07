@@ -160,3 +160,24 @@ export const NIB_SIZES = [1, 2, 4, 8, 16] as const;
  *  the point of a board is that sizes group things, and free values make
  *  every label a slightly different size than every other one. */
 export const TEXT_SIZES = [14, 20, 28, 40, 64] as const;
+
+// ---- level of detail ----------------------------------------------------
+
+/**
+ * Below this many pixels on screen, text is not small — it is noise.
+ *
+ * Zoomed out to see a whole board, 20pt text is a 1.6px smear that reads as
+ * dirt on the screen and costs a layout pass per item to draw. Every mature
+ * canvas stops drawing text somewhere around here and shows the shape of it
+ * instead, which is the information you are actually zoomed out to see: where
+ * things are and how big, not what they say.
+ */
+export const TEXT_LEGIBLE_PX = 6;
+
+/** Below this, even a placeholder bar is more clutter than signal — a card
+ *  becomes a plain block of its own colour. */
+export const TEXT_HINT_PX = 2.5;
+
+/** Secondary lines — a link's URL under its title — go first, since they are
+ *  the least of what a card is telling you. */
+export const DETAIL_LEGIBLE_PX = 9;

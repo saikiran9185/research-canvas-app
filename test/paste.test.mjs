@@ -118,4 +118,53 @@ check("a strange mime type cannot produce a strange filename", () => {
   assert.ok(!n.includes("/") && !n.includes(".."), n);
 });
 
+// ---- youtube ------------------------------------------------------------
+
+check("every shape of YouTube link is recognised", () => {
+  const id = "dQw4w9WgXcQ";
+  for (const u of [
+    `https://www.youtube.com/watch?v=${id}`,
+    `https://youtube.com/watch?v=${id}&list=PL123`,
+    `https://youtu.be/${id}`,
+    `https://youtu.be/${id}?t=42`,
+    `https://www.youtube.com/embed/${id}`,
+    `https://www.youtube.com/shorts/${id}`,
+    `https://www.youtube.com/live/${id}`,
+    `https://m.youtube.com/watch?v=${id}`,
+    `https://music.youtube.com/watch?v=${id}`,
+  ]) assert.equal(P.youtubeId(u), id, u);
+});
+
+check("things that are not YouTube are not YouTube", () => {
+  for (const u of ["https://vimeo.com/123", "https://example.com/watch?v=dQw4w9WgXcQ", "not a url"]) {
+    assert.equal(P.youtubeId(u), null, u);
+  }
+});
+
+check("a malformed id is refused rather than embedded", () => {
+  // An id is exactly 11 characters of a known alphabet; anything else would
+  // be putting an arbitrary path into an iframe URL.
+  assert.equal(P.youtubeId("https://youtu.be/short"), null);
+  assert.equal(P.youtubeId("https://youtu.be/../../evil"), null);
+  assert.equal(P.youtubeId("https://www.youtube.com/watch?v=" + "x".repeat(40)), null);
+});
+
+check("a timestamp survives the paste", () => {
+  // A timestamped link is timestamped on purpose; losing it loses the reason
+  // it was saved.
+  assert.equal(P.youtubeStart("https://youtu.be/dQw4w9WgXcQ?t=90"), 90);
+  assert.equal(P.youtubeStart("https://youtu.be/dQw4w9WgXcQ?t=1m30s"), 90);
+  assert.equal(P.youtubeStart("https://youtu.be/dQw4w9WgXcQ?t=1h2m3s"), 3723);
+  assert.equal(P.youtubeStart("https://youtu.be/dQw4w9WgXcQ"), 0);
+  assert.equal(P.youtubeStart("https://youtu.be/x?t=garbage"), 0);
+});
+
+check("the embed is cookie-free and starts where it was told", () => {
+  const e = P.youtubeEmbed("dQw4w9WgXcQ", 90);
+  assert.ok(e.startsWith("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?"),
+            "a board should not drop tracking cookies for every clip pinned to it");
+  assert.ok(e.includes("start=90"));
+  assert.ok(!P.youtubeEmbed("dQw4w9WgXcQ", 0).includes("start="));
+});
+
 console.log(`\n${passed} paste checks passed`);

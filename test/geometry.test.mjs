@@ -339,4 +339,36 @@ check("measurements feed through union and hit testing too", () => {
   assert.equal(G.hitTest([it], { x: 10, y: 400 }, 0), null, "the guessed box should not");
 });
 
+// ---- level of detail -----------------------------------------------------
+
+check("readable text is drawn in full", () => {
+  assert.equal(G.detailFor(20), "full");
+  assert.equal(G.detailFor(6), "full");
+});
+
+check("text too small to read becomes its own shape, not a smear", () => {
+  // 20pt at 8% zoom is 1.6px. That is not small text; it is noise, and it
+  // costs a layout pass per item to produce.
+  assert.equal(G.detailFor(20 * 0.08), "block");
+  assert.equal(G.detailFor(4), "greeked");
+});
+
+check("the threshold is on rendered size, not on zoom", () => {
+  // A 64pt heading is still readable at a zoom where a 12pt caption is not,
+  // so they must drop out at different zooms rather than one arbitrary one.
+  const zoom = 0.2;
+  assert.equal(G.detailFor(64 * zoom), "full");
+  assert.notEqual(G.detailFor(12 * zoom), "full");
+});
+
+check("detail degrades in one direction only", () => {
+  const order = { block: 0, greeked: 1, full: 2 };
+  let last = -1;
+  for (let px = 0.5; px < 30; px += 0.5) {
+    const now = order[G.detailFor(px)];
+    assert.ok(now >= last, `detail went backwards at ${px}px`);
+    last = now;
+  }
+});
+
 console.log(`\n${passed} geometry checks passed`);

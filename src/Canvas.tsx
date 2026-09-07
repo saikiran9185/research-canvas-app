@@ -7,20 +7,20 @@ import { fmtTime, uid } from "./types";
 import { inkOutline, normRect, polylinePath, ShapeView } from "./canvas/items";
 import { useCanvasCommands } from "./canvas/useCanvasCommands";
 import { InlineEditor } from "./canvas/InlineEditor";
-import { classifyPaste, isVideoUrl, nameForPastedImage } from "./paste";
+import { classifyPaste, isVideoUrl, nameForPastedImage, youtubeId, youtubeStart } from "./paste";
 import { mediaKind } from "./storage";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  DRAG_SLOP_PX, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
+  DETAIL_LEGIBLE_PX, DRAG_SLOP_PX, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
   MIN_ITEM_SIZE, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
 } from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
 import { decidePress, isDoubleClick, selectable, shouldCapturePointer, travelled, widthForTool } from "./interaction";
 import { ordered } from "./order";
-import { MediaImage, MediaVideo, MediaAudio, PdfThumb, DocThumb } from "./canvas/MediaCard";
+import { MediaImage, MediaVideo, MediaAudio, PdfThumb, DocThumb, YouTubeCard } from "./canvas/MediaCard";
 import {
   bbox, CURSOR, expandToGroups, fitTo, HANDLES, handlePoint, minUsefulZoom,
-  gridSpacing, normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
+  detailFor, gridSpacing, normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
   type Guide, type HandleId, type Point, type Rect,
 } from "./geometry";
 
@@ -301,7 +301,13 @@ export default function Canvas({
       const d = docRef.current;
       const made: Item = what.kind === "link"
         ? {
-            id: uid(), type: "link", x: at.x - 150, y: at.y - 34, w: 300, h: 68,
+            id: uid(), type: "link",
+            // A video gets a 16:9 card; a page gets a strip. Pasting a clip
+            // and having to resize it before it is watchable is a small
+            // insult repeated every time.
+            ...(youtubeId(what.url)
+              ? { x: at.x - 240, y: at.y - 135, w: 480, h: 270 }
+              : { x: at.x - 150, y: at.y - 34, w: 300, h: 68 }),
             url: what.url, label: what.label,
             media: isVideoUrl(new URL(what.url)) ? "video" : "page",
           }
@@ -673,7 +679,7 @@ export default function Canvas({
                   />
                 ) : (
                   <div
-                    className="text-view"
+                    className={"text-view" + (detailFor(it.fontSize * cam.zoom) !== "full" ? " is-greeked" : "")}
                     data-item-id={it.id}
                     ref={(el) => {
                       if (el) textEls.current.set(it.id, el);
@@ -681,7 +687,9 @@ export default function Canvas({
                     }}
                     style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
                   >
-                    {it.text || <span className="placeholder">Text</span>}
+                    {detailFor(it.fontSize * cam.zoom) === "full"
+                      ? (it.text || <span className="placeholder">Text</span>)
+                      : null}
                   </div>
                 )
               )}
@@ -695,12 +703,23 @@ export default function Canvas({
                       onChange={(v) => setItemText(it.id, v)}
                       onDone={() => setEditingId(null)}
                     />
-                  ) : (
+                  ) : detailFor(14 * cam.zoom) === "full" ? (
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
+                  ) : (
+                    // Far enough out that the words are a smear. The paper is
+                    // still worth drawing — where notes are and how many is
+                    // exactly what you zoomed out to see.
+                    <div className="note-text is-greeked" aria-hidden />
                   )}
                 </div>
               )}
-              {it.type === "link" && (
+              {it.type === "link" && youtubeId(it.url) ? (
+                <YouTubeCard
+                  id={youtubeId(it.url)!}
+                  start={youtubeStart(it.url)}
+                  label={it.label}
+                />
+              ) : it.type === "link" ? (
                 <a
                   className={"link-card" + (it.media === "video" ? " is-video" : "")}
                   href={it.url}
@@ -720,10 +739,10 @@ export default function Canvas({
                   }}
                 >
                   <span className="link-card-kind">{it.media === "video" ? "▶" : "↗"}</span>
-                  <span className="link-card-label">{it.label}</span>
-                  <span className="link-card-url">{it.url}</span>
+                  {detailFor(13 * cam.zoom) === "full" && <span className="link-card-label">{it.label}</span>}
+                  {11 * cam.zoom >= DETAIL_LEGIBLE_PX && <span className="link-card-url">{it.url}</span>}
                 </a>
-              )}
+              ) : null}
               {it.type === "excerpt" && (
                 <div className="excerpt" style={{ borderColor: it.color }}>
                   {it.image && <img className="excerpt-image" src={it.image} alt="" draggable={false} />}
@@ -783,7 +802,14 @@ export default function Canvas({
           <button
             key={a.id}
             className="board-pin"
-            style={{ left: sx(a.anchor.worldX ?? 0), top: sy(a.anchor.worldY ?? 0), background: a.color }}
+            style={{
+              left: sx(a.anchor.worldX ?? 0), top: sy(a.anchor.worldY ?? 0),
+              background: a.color,
+              fontSize: 12 * cam.zoom,
+              padding: `${7 * cam.zoom}px ${11 * cam.zoom}px`,
+              borderRadius: `${4 * cam.zoom}px ${14 * cam.zoom}px ${14 * cam.zoom}px ${14 * cam.zoom}px`,
+              maxWidth: 240 * cam.zoom,
+            }}
             title={`${a.author}: ${a.text}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => { setEditingPin({ id: a.id, text: a.text }); setDraftComment(null); }}
@@ -807,7 +833,11 @@ export default function Canvas({
         {draftComment && (
           <div
             className="board-pin is-draft"
-            style={{ left: sx(draftComment.x), top: sy(draftComment.y), background: "#2563eb" }}
+            style={{
+              left: sx(draftComment.x), top: sy(draftComment.y), background: "#2563eb",
+              fontSize: 12 * cam.zoom,
+              padding: `${7 * cam.zoom}px ${11 * cam.zoom}px`,
+            }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             {/* InlineEditor, not a bare textarea: it claims the keyboard for

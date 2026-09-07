@@ -1129,3 +1129,39 @@ body {
 .arrange-btn:hover:not(:disabled) { background: var(--bg); color: var(--text); }
 .arrange-btn:disabled { opacity: 0.3; cursor: default; }
 .arrange-btn.wide { width: 34px; }
+
+
+/* Greeked text: the shape of the words without the words. Drawn when the type
+   would be too small to read, because 1.6px glyphs are not small text — they
+   are noise, and they cost a layout pass each to produce. */
+.text-view.is-greeked, .note-text.is-greeked {
+  background: currentColor; opacity: 0.28; border-radius: 1px;
+  min-height: 2px; height: 30%; width: 70%; margin: 12% 0;
+}
+.note-text.is-greeked { color: #1c1917; }
+
+
+/* A YouTube link on the board. A poster until you ask for it: twenty clips
+   pinned to a board should not be twenty iframes competing for the machine
+   before you have watched any of them. */
+.yt-poster {
+  position: relative; width: 100%; height: 100%; padding: 0; border: none;
+  border-radius: var(--r-md); overflow: hidden; cursor: pointer;
+  background: #000; display: block; pointer-events: auto;
+}
+.yt-poster img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0.85; }
+.yt-poster:hover img { opacity: 1; }
+.yt-play {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 28px; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+}
+.yt-label {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 8px;
+  font-size: var(--text-xs); color: #fff; text-align: left;
+  background: linear-gradient(transparent, rgba(0,0,0,0.75));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.yt-frame {
+  width: 100%; height: 100%; border: none; border-radius: var(--r-md);
+  background: #000; pointer-events: auto;
+}

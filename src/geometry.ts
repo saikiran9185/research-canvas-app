@@ -12,7 +12,7 @@ import type { Camera, Item } from "./types";
 import {
   FIT_PADDING_PX, GRID_BASE, GRID_MAJOR_EVERY, GRID_MAX_SCREEN_PX,
   GRID_MIN_SCREEN_PX, MAX_ZOOM, MIN_ITEM_SIZE, MIN_TEXT_WIDTH, MIN_ZOOM,
-  ZOOM_OUT_HEADROOM,
+  TEXT_HINT_PX, TEXT_LEGIBLE_PX, ZOOM_OUT_HEADROOM,
 } from "./constants";
 
 export interface Point { x: number; y: number; }
@@ -380,4 +380,25 @@ export function gridSpacing(zoom: number): { world: number; major: number } {
     world = prev ? prev * decade : decade / 2;
   }
   return { world, major: GRID_MAJOR_EVERY };
+}
+
+// ---- level of detail ----------------------------------------------------
+
+export type Detail = "full" | "greeked" | "block";
+
+/**
+ * How much of a card is worth drawing at this size on screen.
+ *
+ *   full     — draw everything
+ *   greeked  — draw the shape of the text as bars, not the glyphs
+ *   block    — draw the card as a plain block of its colour
+ *
+ * The threshold is on the RENDERED size, not on the zoom, so a 64pt heading
+ * and a 12pt caption drop out at the zoom levels where each actually stops
+ * being readable rather than at one arbitrary level for both.
+ */
+export function detailFor(fontSizePx: number): Detail {
+  if (fontSizePx >= TEXT_LEGIBLE_PX) return "full";
+  if (fontSizePx >= TEXT_HINT_PX) return "greeked";
+  return "block";
 }
