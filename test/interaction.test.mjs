@@ -18,9 +18,14 @@ function load(name, strip) {
   return import(out);
 }
 
+// Inline the constants module so the tests exercise the real shipped values
+// rather than a copy that can drift away from them.
+const CONSTANTS = readFileSync("src/constants.ts", "utf8").replace(/^\/\/.*$/gm, "");
 const I = await load("interaction", (s) =>
   s.replace('import type { Item, Tool } from "./types";', "")
-   .replace('import type { HandleId, Point } from "./geometry";', ""));
+   .replace('import type { HandleId, Point } from "./geometry";', "")
+   .replace(/import \{[^}]*\} from "\.\/constants";/, CONSTANTS)
+   .replace(/export \{ DOUBLE_CLICK_MS \};/, ""));
 const T = await load("theme", (s) => s);
 
 let passed = 0;
@@ -121,6 +126,23 @@ check("two quick presses on the same item are a double-click", () => {
 
 check("two slow presses are not", () => {
   assert.ok(!I.isDoubleClick({ id: "a", at: 1000 }, "a", 1000 + I.DOUBLE_CLICK_MS + 1));
+});
+
+check("the double-click window matches the macOS default", () => {
+  // 450 quietly failed anyone slower than the platform default: they got two
+  // single clicks and no editor.
+  assert.equal(I.DOUBLE_CLICK_MS, 500);
+});
+
+check("the grab area is bigger than the handle we draw", () => {
+  // A target you can only hit dead-centre reads as unresponsive.
+  assert.ok(I.HANDLE_GRAB_PX * 2 > I.HANDLE_DRAW_PX, "grab must exceed draw");
+  assert.ok(I.HANDLE_GRAB_PX * 2 >= 20, "and clear a comfortable mouse target");
+});
+
+check("no nib width is zero", () => {
+  // A zero-width pen is not a thin line, it is an invisible one.
+  for (const n of I.NIB_SIZES) assert.ok(n >= 1, `${n} would draw nothing`);
 });
 
 check("two quick presses on different items are not", () => {
