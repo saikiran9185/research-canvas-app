@@ -402,3 +402,64 @@ export function detailFor(fontSizePx: number): Detail {
   if (fontSizePx >= TEXT_HINT_PX) return "greeked";
   return "block";
 }
+
+// ---- frames -------------------------------------------------------------
+
+/**
+ * Is this item inside that frame?
+ *
+ * By CENTRE, not by overlap. A card half in and half out has to belong to one
+ * of them, and the centre is the rule a person can predict by looking — drag
+ * something until its middle crosses the edge and it changes hands. Overlap
+ * would make a card that merely brushes a frame's corner a member of it.
+ */
+export function isInFrame(item: Item, frame: Rect, measured?: Measured): boolean {
+  const b = bbox(item, measured);
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  return cx >= frame.x && cx <= frame.x + frame.w
+      && cy >= frame.y && cy <= frame.y + frame.h;
+}
+
+/**
+ * What a frame currently holds.
+ *
+ * A frame never contains another frame's contents through it: nesting is
+ * resolved by taking the SMALLEST frame that contains an item, so a section
+ * inside a section does not claim its child's cards as well.
+ */
+export function frameContents(
+  items: readonly Item[],
+  frameId: string,
+  measured?: Measured,
+): Item[] {
+  const frame = items.find((i) => i.id === frameId);
+  if (!frame || frame.type !== "frame") return [];
+  const frames = items.filter((i): i is Item & { type: "frame" } => i.type === "frame");
+
+  return items.filter((it) => {
+    if (it.id === frameId || it.type === "frame") return false;
+    if (!isInFrame(it, frame, measured)) return false;
+    // Whichever containing frame is smallest owns it.
+    const area = (f: { w: number; h: number }) => f.w * f.h;
+    for (const other of frames) {
+      if (other.id === frameId) continue;
+      if (isInFrame(it, other, measured) && area(other) < area(frame)) return false;
+    }
+    return true;
+  });
+}
+
+/** Frames plus everything they hold — what a drag on a frame should move. */
+export function withFrameContents(
+  items: readonly Item[],
+  ids: Set<string>,
+  measured?: Measured,
+): Set<string> {
+  const out = new Set(ids);
+  for (const id of ids) {
+    const it = items.find((i) => i.id === id);
+    if (it?.type !== "frame") continue;
+    for (const child of frameContents(items, id, measured)) out.add(child.id);
+  }
+  return out;
+}

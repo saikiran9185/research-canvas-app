@@ -12,7 +12,7 @@ import { mediaKind } from "./storage";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   DETAIL_LEGIBLE_PX, DRAG_SLOP_PX, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
-  MIN_ITEM_SIZE, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
+  FONTS, MIN_ITEM_SIZE, SNAP_PX, ZOOM_WHEEL_SENSITIVITY, type FontRole,
 } from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
 import { decidePress, isDoubleClick, selectable, shouldCapturePointer, travelled, widthForTool } from "./interaction";
@@ -40,6 +40,8 @@ interface Props {
   fill: string;
   /** Size for new text, in world units. */
   fontSize: number;
+  /** Font role for new text. */
+  font: FontRole;
   /** Selection is a set: a board is not usable if you can only ever hold one
    *  thing at a time. */
   selectedIds: Set<string>;
@@ -77,7 +79,7 @@ type Drag =
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, fontSize, selectedIds, setSelectedIds,
+  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, fontSize, font, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
   onPasteFiles, onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
@@ -318,7 +320,7 @@ export default function Canvas({
             const w = what.text.length > 900 ? 720 : what.text.length > 220 ? 520 : 360;
             return {
               id: uid(), type: "text", x: at.x - w / 2, y: at.y - 12, w,
-              text: what.text, color: inkToStore, fontSize,
+              text: what.text, color: inkToStore, fontSize, font,
             } as Item;
           })();
       setDoc({ ...d, items: [...d.items, made] });
@@ -384,7 +386,7 @@ export default function Canvas({
       }
       case "text": {
         const id = uid();
-        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize }] });
+        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize, font }] });
         setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }
@@ -678,7 +680,7 @@ export default function Canvas({
                 editingId === it.id ? (
                   <InlineEditor
                     className="text-edit"
-                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
+                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontFamily: FONTS[it.font ?? "sans"], fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
                     value={it.text}
                     onChange={(v) => setItemText(it.id, v)}
                     onDone={() => setEditingId(null)}
@@ -691,7 +693,7 @@ export default function Canvas({
                       if (el) textEls.current.set(it.id, el);
                       else textEls.current.delete(it.id);
                     }}
-                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
+                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontFamily: FONTS[it.font ?? "sans"], fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
                   >
                     {detailFor(it.fontSize * cam.zoom) === "full"
                       ? (it.text || <span className="placeholder">Text</span>)

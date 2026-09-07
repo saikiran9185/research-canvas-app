@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import type { Tool } from "./types";
 import { reachablePosition } from "./interaction";
 import type { Align, Distribute } from "./arrange";
+import { FONT_ROLES, type FontRole } from "./constants";
 
 interface Props {
   tool: Tool;
@@ -15,6 +16,10 @@ interface Props {
   setFill: (c: string) => void;
   fontSize: number;
   setFontSize: (n: number) => void;
+  font: FontRole;
+  setFont: (f: FontRole) => void;
+  /** Text is selected, so the text controls can act on something. */
+  textSelected: boolean;
   /** How many items are selected — align and distribute need two and three. */
   selectionCount: number;
   onAlign: (how: Align) => void;
@@ -183,6 +188,36 @@ export default function Toolbar(p: Props) {
           <path d="M4 17l5-5 4 4 3-3 4 4" />
         </svg>
       </button>
+
+      {(p.tool === "text" || p.textSelected) && (
+        <>
+          <div className="tool-divider" />
+          {/* On the rail rather than in the popover: these were behind an
+              unlabelled swatch, which is the same as not having them. */}
+          <div className="text-bar" role="group" aria-label="Text">
+            {FONT_ROLES.map((f) => (
+              <button
+                key={f}
+                className={"font-btn font-" + f + (p.font === f ? " active" : "")}
+                onClick={() => p.setFont(f)}
+                title={f === "sans" ? "Sans" : f === "serif" ? "Serif" : "Monospace"}
+                aria-pressed={p.font === f}
+              >Aa</button>
+            ))}
+            <select
+              className="font-size-select"
+              value={p.fontSize}
+              onChange={(e) => p.setFontSize(Number(e.target.value))}
+              title="Text size"
+              aria-label="Text size"
+            >
+              {TEXT_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button className="arrange-btn" title="Bold" onClick={() => p.onToggleTextStyle("bold")}><b>B</b></button>
+            <button className="arrange-btn" title="Italic" onClick={() => p.onToggleTextStyle("italic")}><i>I</i></button>
+          </div>
+        </>
+      )}
 
       <div className="tool-divider" />
 

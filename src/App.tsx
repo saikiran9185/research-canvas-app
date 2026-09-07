@@ -16,7 +16,7 @@ import { applyFill, applyInk, applyWidth } from "./interaction";
 import { migrateDoc, syncIndices } from "./order";
 import { shortcutsAllowed } from "./editorScope";
 import { align, distribute, snapToGrid, type Align, type Distribute } from "./arrange";
-import { GRID_BASE } from "./constants";
+import { GRID_BASE, type FontRole } from "./constants";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -46,6 +46,7 @@ export default function App() {
   const [color, setColor] = useState<string>(() => (isDark(getTheme()) ? INK.dark : INK.light));
   const [size, setSize] = useState(3);
   const [fontSize, setFontSize] = useState(20);
+  const [font, setFont] = useState<FontRole>("sans");
   const [fill, setFill] = useState("none");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -313,6 +314,11 @@ export default function App() {
     setDoc({ ...d, items: d.items.map((i) =>
       selectedIds.has(i.id) && i.type === "text" ? { ...i, [which]: turnOn || undefined } : i) });
   }, [selectedIds, setDoc]);
+
+  const chooseFont = useCallback((f: FontRole) => {
+    setFont(f);
+    restyle((i) => (i.type === "text" ? { ...i, font: f } : i));
+  }, [restyle]);
 
   const chooseFill = useCallback((c: string) => {
     setFill(c);
@@ -784,6 +790,9 @@ export default function App() {
 
   // No board open means there is nothing to show but the library.
   const showLibrary = libraryOpen || !doc;
+  /** Text controls belong on the rail itself when they can act — buried in a
+   *  popover behind an unlabelled swatch, nobody finds them. */
+  const textSelected = !!doc?.items.some((i) => selectedIds.has(i.id) && i.type === "text");
 
   return (
     <div className="app">
@@ -823,6 +832,8 @@ export default function App() {
             size={size} setSize={chooseSize}
             fill={fill} setFill={chooseFill}
             fontSize={fontSize} setFontSize={chooseFontSize}
+            font={font} setFont={chooseFont}
+            textSelected={textSelected}
             selectionCount={selectedIds.size}
             onAlign={doAlign} onDistribute={doDistribute} onSnapToGrid={doSnapToGrid}
             onToggleTextStyle={toggleTextStyle}
@@ -857,7 +868,7 @@ export default function App() {
               <Canvas
                 doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark} locked={locked}
                 tool={tool} setTool={setTool}
-                color={color} size={size} fill={fill} fontSize={fontSize}
+                color={color} size={size} fill={fill} fontSize={fontSize} font={font}
                 selectedIds={selectedIds} setSelectedIds={setSelectedIds}
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}

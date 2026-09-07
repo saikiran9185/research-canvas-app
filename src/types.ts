@@ -10,6 +10,7 @@
 
 export type Tool =
   | "select"
+  | "frame"
   | "hand"
   | "pen"
   | "rect"
@@ -77,6 +78,8 @@ export interface TextItem extends Base {
    *  stays legible when it is opened somewhere that font is not installed. */
   bold?: boolean;
   italic?: boolean;
+  /** A font ROLE, not a font name. See FONTS in constants.ts for why. */
+  font?: "sans" | "serif" | "mono";
   x: number;
   y: number;
   w: number;
@@ -172,7 +175,30 @@ export interface LinkItem extends Base {
   media: "page" | "video";
 }
 
-export type Item = StrokeItem | ShapeItem | TextItem | NoteItem | MediaItem | ExcerptItem | LinkItem;
+/**
+ * A named region of the board.
+ *
+ * On a research board "these fourteen things are my typography references" is
+ * a real unit of thought, not a visual grouping — so a frame is a place that
+ * holds whatever is put in it rather than a fixed list of members. Membership
+ * is worked out from geometry: what is inside the frame belongs to it. That
+ * means it needs no bookkeeping when something is dragged in or out, and two
+ * people rearranging the same board cannot disagree about who owns what.
+ */
+export interface FrameItem extends Base {
+  type: "frame";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  title: string;
+  /** A wash behind the contents, or undefined for just an outline. */
+  color?: string;
+}
+
+export type Item =
+  | StrokeItem | ShapeItem | TextItem | NoteItem
+  | MediaItem | ExcerptItem | LinkItem | FrameItem;
 
 export interface CanvasDoc {
   version: 1;

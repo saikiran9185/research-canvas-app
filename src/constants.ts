@@ -181,3 +181,25 @@ export const TEXT_HINT_PX = 2.5;
 /** Secondary lines — a link's URL under its title — go first, since they are
  *  the least of what a card is telling you. */
 export const DETAIL_LEGIBLE_PX = 9;
+
+/**
+ * Fonts, as roles rather than names.
+ *
+ * Storing "Helvetica Neue" in a .canvas file means the board looks different —
+ * or wrong — on a machine that does not have it, and this project's whole
+ * premise is that the file is yours and opens anywhere. A role resolves to
+ * whatever that machine actually has, and the fallback chains below are chosen
+ * so the result is always the intended KIND of type.
+ *
+ * The chains lead with system fonts on purpose: they are the ones that ship
+ * with full Indic coverage, so Telugu renders properly rather than falling
+ * back to boxes — which a hardcoded Latin font name would guarantee.
+ */
+export const FONTS = {
+  sans: 'system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif',
+  serif: 'ui-serif, Georgia, "Noto Serif", "Times New Roman", serif',
+  mono: 'ui-monospace, "SF Mono", Menlo, "Noto Sans Mono", monospace',
+} as const;
+
+export type FontRole = keyof typeof FONTS;
+export const FONT_ROLES: FontRole[] = ["sans", "serif", "mono"];

@@ -1175,3 +1175,27 @@ body {
   width: 100%; height: 100%; border: none; border-radius: var(--r-md);
   background: #000; pointer-events: auto;
 }
+
+
+/* Text controls, on the rail. They were inside the style popover behind an
+   unlabelled swatch, which for a control you reach for constantly is the same
+   as not having it. */
+.text-bar { display: flex; align-items: center; gap: 2px; }
+.font-btn {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--muted); cursor: pointer; font-size: var(--text-md);
+}
+.font-btn:hover { background: var(--bg); color: var(--text); }
+.font-btn.active { border-color: var(--accent); background: var(--bg); color: var(--accent); }
+/* Each button is set in the face it selects, so the control is its own
+   preview rather than three identical letters. */
+.font-sans { font-family: system-ui, -apple-system, sans-serif; }
+.font-serif { font-family: ui-serif, Georgia, serif; }
+.font-mono { font-family: ui-monospace, Menlo, monospace; font-size: var(--text-sm); }
+
+.font-size-select {
+  height: 30px; padding: 0 4px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font-size: var(--text-sm); cursor: pointer;
+}
