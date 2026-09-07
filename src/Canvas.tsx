@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
+import { getStroke } from "perfect-freehand";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
-import { decidePress, isDoubleClick, travelled, widthForTool } from "./interaction";
+import { decidePress, isDoubleClick, shouldCapturePointer, travelled, widthForTool } from "./interaction";
 import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
@@ -52,7 +53,8 @@ const SNAP_PX = 6;       // magnet strength, in screen pixels
 const HANDLE_PX = 9;     // grab radius for a resize handle, in screen pixels
 const DRAG_SLOP_PX = 3;  // ignore this much wobble before a click becomes a drag
 
-function strokePath(points: number[]): string {
+/** The bare polyline: the hit area, and the fallback for a lone dot. */
+function polylinePath(points: number[]): string {
   if (points.length < 2) return "";
   if (points.length === 2) {
     // A single tap is a dot. It used to be discarded entirely.
@@ -62,6 +64,35 @@ function strokePath(points: number[]): string {
   let d = `M ${points[0]} ${points[1]}`;
   for (let i = 2; i < points.length; i += 2) d += ` L ${points[i]} ${points[i + 1]}`;
   return d;
+}
+
+/**
+ * The visible stroke: an outline, not a line.
+ *
+ * A constant-width stroked path reads as a cable rather than as a drawn mark.
+ * perfect-freehand (MIT, by the author of tldraw) turns the input points into
+ * the *outline* of a nib that tapers at the ends and thins as the hand moves
+ * faster — which is what makes ink look like ink. We fill that outline.
+ *
+ * It is a single-purpose utility, not a framework: it takes points and returns
+ * a polygon, and knows nothing about this app.
+ */
+function inkOutline(points: number[], size: number): string {
+  if (points.length < 4) return "";
+  const pts: number[][] = [];
+  for (let i = 0; i < points.length; i += 2) pts.push([points[i], points[i + 1]]);
+  const outline = getStroke(pts, {
+    size,
+    thinning: 0.55,
+    smoothing: 0.55,
+    streamline: 0.4,
+    simulatePressure: true,
+    last: true,
+  });
+  if (!outline.length) return "";
+  let d = `M ${outline[0][0].toFixed(2)} ${outline[0][1].toFixed(2)}`;
+  for (let i = 1; i < outline.length; i++) d += ` L ${outline[i][0].toFixed(2)} ${outline[i][1].toFixed(2)}`;
+  return d + " Z";
 }
 
 function normRect(s: ShapeItem): ShapeItem {
@@ -113,6 +144,9 @@ export default function Canvas({
   const clipboard = useRef<Item[]>([]);
   /** Last click, for detecting a double-click ourselves. */
   const lastClick = useRef<{ id: string; at: number }>({ id: "", at: 0 });
+  /** When the current editor opened, so a blur from the opening click can be
+   *  told apart from the person actually clicking away. */
+  const editorOpenedAt = useRef(0);
   const [spaceDown, setSpaceDown] = useState(false);
 
   const cam = doc.camera;
@@ -324,7 +358,6 @@ export default function Canvas({
     if (editingId) setEditingId(null);
     const local = localPoint(e.clientX, e.clientY);
     const p = screenToWorld(e.clientX, e.clientY);
-    hostRef.current!.setPointerCapture(e.pointerId);
 
     // Nothing under the cursor reaches here: items stop propagation and are
     // handled by itemPointerDown, so `hit` is null by construction.
@@ -333,6 +366,11 @@ export default function Canvas({
       shiftKey: e.shiftKey, hit: null, handle: handleAt(local), isDouble: false,
     });
     if (!intent) return; // locked camera swallowed a pan
+
+    // Capture only for gestures that keep tracking off the element. Capturing
+    // for a placing tool sends the click to the host and blurs the editor that
+    // is about to open.
+    if (shouldCapturePointer(intent)) hostRef.current!.setPointerCapture(e.pointerId);
 
     if (intent.kind === "pan") {
       drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
@@ -372,7 +410,7 @@ export default function Canvas({
       case "text": {
         const id = uid();
         setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize: 20 }] });
-        setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
+        setSelectedIds(new Set([id])); editorOpenedAt.current = Date.now(); setEditingId(id); setTool("select");
         return;
       }
       case "comment":
@@ -383,7 +421,7 @@ export default function Canvas({
       case "note": {
         const id = uid();
         setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "note", x: p.x, y: p.y, w: 180, h: 180, text: "", color: "#ffe27a" }] });
-        setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
+        setSelectedIds(new Set([id])); editorOpenedAt.current = Date.now(); setEditingId(id); setTool("select");
         return;
       }
       default:
@@ -485,8 +523,18 @@ export default function Canvas({
   function beginEditing(item: Item) {
     if (item.type !== "text" && item.type !== "note") return false;
     select(new Set([item.id]));
+    editorOpenedAt.current = Date.now();
     setEditingId(item.id);
     return true;
+  }
+
+  /** A blur arriving with the opening click is not the person leaving. */
+  function onEditorBlur(e: React.FocusEvent<HTMLTextAreaElement>) {
+    if (Date.now() - editorOpenedAt.current < 250) {
+      e.target.focus();
+      return;
+    }
+    setEditingId(null);
   }
 
   /** Pointer down on an item, in select mode. */
@@ -591,8 +639,13 @@ export default function Canvas({
             it.type === "stroke" ? (
               <g key={it.id}>
                 {/* wide invisible hit area for easy selection */}
-                <path d={strokePath(it.points)} stroke="transparent" strokeWidth={Math.max(it.size, 14)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
-                <path d={strokePath(it.points)} stroke={ink(it.color)} strokeWidth={it.size} fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+                <path d={polylinePath(it.points)} stroke="transparent" strokeWidth={Math.max(it.size, 14)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
+                {it.points.length >= 4 ? (
+                  <path d={inkOutline(it.points, it.size)} fill={ink(it.color)} style={{ pointerEvents: "none" }} />
+                ) : (
+                  // A lone dot has no outline to fill; draw the nib itself.
+                  <circle cx={it.points[0]} cy={it.points[1]} r={Math.max(0.5, it.size / 2)} fill={ink(it.color)} style={{ pointerEvents: "none" }} />
+                )}
               </g>
             ) : (
               <ShapeView key={it.id} item={it as ShapeItem} ink={ink} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
@@ -612,7 +665,7 @@ export default function Canvas({
             <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: sx(b.x), top: sy(b.y), width: b.w * z, ...(it.type !== "text" ? { height: b.h * z } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
-                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
+                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
                 ) : (
                   <div className="text-view" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}>
                     {it.text || <span className="placeholder">Text</span>}
@@ -622,7 +675,7 @@ export default function Canvas({
               {it.type === "note" && (
                 <div className="note" style={{ background: it.color, fontSize: 14 * cam.zoom, borderRadius: 6 * cam.zoom }}>
                   {editingId === it.id ? (
-                    <textarea autoFocus className="note-edit" style={{ fontSize: 14 * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
+                    <textarea autoFocus className="note-edit" style={{ fontSize: 14 * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
                   ) : (
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
                   )}

@@ -63,6 +63,25 @@ export function decidePress(c: PressContext): Intent | null {
 }
 
 /**
+ * Does this gesture need the pointer captured on the host?
+ *
+ * Capture is required by anything that keeps tracking after the cursor leaves
+ * the element it started on — a drag, a resize, a rubber band. It is actively
+ * harmful for anything that opens a text editor: a captured pointer delivers
+ * the click to the capture target, the host is not focusable, so focus leaves
+ * the textarea that just mounted and its blur handler closes the editor in the
+ * same frame. That is why placing text or a note appeared to do nothing.
+ */
+export function shouldCapturePointer(intent: Intent): boolean {
+  switch (intent.kind) {
+    case "pan": case "draw": case "shape": case "marquee": case "resize": case "move":
+      return true;
+    case "place": case "edit":
+      return false;
+  }
+}
+
+/**
  * Double-click, detected from pointer-down rather than from the `dblclick`
  * event.
  *

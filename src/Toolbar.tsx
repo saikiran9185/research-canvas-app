@@ -19,6 +19,7 @@ interface Props {
   onZoomFit: () => void;
   locked: boolean;
   onToggleLock: () => void;
+  onShowShortcuts: () => void;
   notesOpen: boolean;
   noteCount: number;
   onToggleNotes: () => void;
@@ -271,6 +272,13 @@ export default function Toolbar(p: Props) {
           {p.locked
             ? <path d="M8 11V8a4 4 0 018 0v3" />
             : <path d="M8 11V8a4 4 0 017-2.6" />}
+        </svg>
+      </button>
+
+      <button className="tool-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={p.onShowShortcuts}>
+        <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7">
+          <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
+          <path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8" strokeLinecap="round" />
         </svg>
       </button>
 

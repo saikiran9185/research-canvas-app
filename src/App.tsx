@@ -717,6 +717,7 @@ export default function App() {
             canUndo={hist.u > 0} canRedo={hist.r > 0}
             onZoomFit={zoomFit}
             locked={locked} onToggleLock={() => setLocked((v) => !v)}
+            onShowShortcuts={() => setShowShortcuts(true)}
             notesOpen={panelOpen}
             noteCount={annotations.filter((a) => !a.resolved).length}
             onToggleNotes={() => setPanelOpen((v) => !v)}

@@ -93,6 +93,26 @@ check("drawing tools draw, and are not confused with each other", () => {
   }
 });
 
+// ---- pointer capture ----------------------------------------------------
+
+check("gestures that leave the element capture the pointer", () => {
+  for (const i of [{ kind: "pan" }, { kind: "draw" }, { kind: "shape" },
+                   { kind: "marquee", additive: false }, { kind: "resize", handle: "nw" },
+                   { kind: "move" }]) {
+    assert.ok(I.shouldCapturePointer(i), `${i.kind} needs capture to keep tracking`);
+  }
+});
+
+check("opening an editor must NOT capture the pointer", () => {
+  // Capture sends the click to the host, which is not focusable, so focus
+  // leaves the textarea that just mounted and its blur handler shuts the
+  // editor in the same frame. This is why text input never fired.
+  assert.ok(!I.shouldCapturePointer({ kind: "place", tool: "text" }));
+  assert.ok(!I.shouldCapturePointer({ kind: "place", tool: "note" }));
+  assert.ok(!I.shouldCapturePointer({ kind: "place", tool: "comment" }));
+  assert.ok(!I.shouldCapturePointer({ kind: "edit" }));
+});
+
 // ---- double-click detection ---------------------------------------------
 
 check("two quick presses on the same item are a double-click", () => {
