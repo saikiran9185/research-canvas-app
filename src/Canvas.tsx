@@ -9,6 +9,7 @@ import {
 } from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
 import { decidePress, isDoubleClick, shouldCapturePointer, travelled, widthForTool } from "./interaction";
+import { ordered, reorder } from "./order";
 import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
@@ -235,13 +236,6 @@ export default function Canvas({
 
   // --- keyboard ----------------------------------------------------------
   useEffect(() => {
-    const replaceSelected = (fn: (items: Item[], selected: Item[]) => Item[]) => {
-      const d = docRef.current;
-      const selected = d.items.filter((i) => selRef.current.has(i.id));
-      if (!selected.length) return;
-      setDoc({ ...d, items: fn(d.items, selected) });
-    };
-
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !isTyping(e)) setSpaceDown(true);
       if (isTyping(e)) return;
@@ -309,15 +303,13 @@ export default function Canvas({
         return;
       }
 
-      // Z-order. Painter's order is array order, so this is a reshuffle.
-      if (mod && e.key === "]") {
+      // Z-order changes each moved item's own stacking index rather than its
+      // position in a shared list, so two people reordering the same board
+      // converge instead of overwriting each other. See order.ts.
+      if (mod && (e.key === "]" || e.key === "[")) {
         e.preventDefault();
-        replaceSelected((items, selected) => [...items.filter((i) => !sel.has(i.id)), ...selected]);
-        return;
-      }
-      if (mod && e.key === "[") {
-        e.preventDefault();
-        replaceSelected((items, selected) => [...selected, ...items.filter((i) => !sel.has(i.id))]);
+        if (!sel.size) return;
+        setDoc({ ...d, items: reorder(d.items, sel, e.key === "]" ? "front" : "back") });
         return;
       }
 
@@ -603,7 +595,9 @@ export default function Canvas({
 
   const viewBox = `${-cam.x / cam.zoom} ${-cam.y / cam.zoom} ${Math.max(1, view.w / cam.zoom)} ${Math.max(1, view.h / cam.zoom)}`;
 
-  const items = draft ? [...doc.items, draft] : doc.items;
+  // Painter's order. `ordered` returns the array untouched when it is already
+  // sorted by index, which it is except immediately after a reorder.
+  const items = ordered(draft ? [...doc.items, draft] : doc.items);
   const vectors = items.filter((i) => i.type === "stroke" || i.type === "shape");
   const blocks = items.filter((i) =>
     i.type === "text" || i.type === "note" || i.type === "media" || i.type === "excerpt");

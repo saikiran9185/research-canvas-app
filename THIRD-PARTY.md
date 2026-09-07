@@ -39,6 +39,16 @@ pen stroke read as ink rather than as a constant-width cable. Used in
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
+### fractional-indexing 4.0.0 — CC0-1.0 (public domain)
+
+Generates the short sortable strings that carry stacking order, so that two
+people reordering the same board converge instead of overwriting each other.
+Used in `src/order.ts`. CC0 reserves no rights and requires no attribution;
+it is recorded here for completeness rather than obligation.
+
+The algorithm is David Greenspan's, published at
+<https://observablehq.com/@dgreensp/implementing-fractional-indexing>.
+
 The React, Vite, TypeScript and Tauri toolchains are ordinary declared
 dependencies under their own permissive licences; see `package.json` and
 `src-tauri/Cargo.toml`.

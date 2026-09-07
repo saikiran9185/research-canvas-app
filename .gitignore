@@ -32,3 +32,6 @@ public/tesseract
 
 # Imported media never belongs in the repo
 .assets/
+
+# test build scratch
+node_modules/.rc-order-*

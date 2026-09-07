@@ -13,6 +13,7 @@ import {
 } from "./storage";
 import { getTheme, applyTheme, isDark, isDefaultInk, INK, type Theme } from "./theme";
 import { applyFill, applyInk, applyWidth } from "./interaction";
+import { migrateDoc, syncIndices } from "./order";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -151,6 +152,15 @@ export default function App() {
   }, []);
 
   const setDoc = useCallback((next: CanvasDoc, history = true) => {
+    // Give any item that lacks a stacking index one consistent with where it
+    // already sits in the array. Doing it here rather than at every place that
+    // creates an item means there is exactly one rule and no way to forget it:
+    // something appended to the end sorts after everything, i.e. on top.
+    // syncIndices returns the same array untouched when nothing needs fixing,
+    // which is the case on every frame of a drag.
+    const synced = syncIndices(next.items);
+    if (synced !== next.items) next = { ...next, items: synced };
+
     if (history && docRef.current) {
       past.current.push(JSON.stringify(docRef.current));
       if (past.current.length > 80) past.current.shift();
@@ -271,7 +281,9 @@ export default function App() {
   const openCanvas = useCallback(async (path: string) => {
     const text = await storage.readText(path);
     try {
-      const d = JSON.parse(text) as CanvasDoc;
+      // Boards written before stacking indices existed get them from the array
+      // order they were saved in, so nothing moves and nothing is lost.
+      const d = migrateDoc(JSON.parse(text) as CanvasDoc);
       past.current = []; future.current = []; setHist({ u: 0, r: 0 });
       setSelectedIds(new Set());
       setViewerItemId(null);

@@ -32,6 +32,14 @@ interface Base {
    * board written before grouping existed still loads unchanged.
    */
   groupId?: string;
+  /**
+   * Stacking order, as a fractional index: a string that sorts
+   * lexicographically, and between any two of which another can always be
+   * generated. Optional so older boards still load — they are assigned indices
+   * from their array order on open. See order.ts for why this is not just the
+   * array position.
+   */
+  index?: string;
 }
 
 export interface StrokeItem extends Base {
