@@ -67,7 +67,8 @@ export default function App() {
 
   // --- appearance --------------------------------------------------------
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
-  useEffect(() => { applyTheme(theme); }, [theme]);
+  const [dark, setDark] = useState<boolean>(() => isDark(getTheme()));
+  useEffect(() => { applyTheme(theme); setDark(isDark(theme)); }, [theme]);
 
   // Follow the palette with the default ink, but never overrule a colour the
   // person picked themselves.
@@ -79,7 +80,10 @@ export default function App() {
   useEffect(() => {
     if (theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => setColor((c) => (isDefaultInk(c) ? (mq.matches ? INK.dark : INK.light) : c));
+    const onChange = () => {
+      setDark(mq.matches);
+      setColor((c) => (isDefaultInk(c) ? (mq.matches ? INK.dark : INK.light) : c));
+    };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, [theme]);
@@ -229,6 +233,39 @@ export default function App() {
     // exactly like any other edit.
     persist({ ...a, deleted: true, updatedAt: Date.now() });
   }, [persist]);
+
+  // --- style controls ----------------------------------------------------
+
+  /**
+   * A style control does two jobs, and doing only the first is why "no fill"
+   * and the colour swatches appeared dead: it sets the default for the *next*
+   * thing you draw, and it restyles whatever is selected right now. Every
+   * canvas app works this way, and without the second half the controls look
+   * broken rather than merely limited.
+   */
+  const restyle = useCallback((patch: (it: Item) => Item) => {
+    const d = docRef.current;
+    if (!d || !selectedIds.size) return;
+    setDoc({ ...d, items: d.items.map((i) => (selectedIds.has(i.id) ? patch(i) : i)) });
+  }, [selectedIds, setDoc]);
+
+  const chooseColor = useCallback((c: string) => {
+    setColor(c);
+    // Ink: strokes, outlines and text. A note's `color` is its paper, not its
+    // ink, so it is left to the fill control instead.
+    restyle((i) => (i.type === "stroke" || i.type === "shape" || i.type === "text" ? { ...i, color: c } : i));
+  }, [restyle]);
+
+  const chooseSize = useCallback((n: number) => {
+    setSize(n);
+    restyle((i) => (i.type === "stroke" || i.type === "shape" ? { ...i, size: n } : i));
+  }, [restyle]);
+
+  const chooseFill = useCallback((c: string) => {
+    setFill(c);
+    restyle((i) => (i.type === "shape" ? { ...i, fill: c }
+                  : i.type === "note" && c !== "none" ? { ...i, color: c } : i));
+  }, [restyle]);
 
   // --- file / folder ops -------------------------------------------------
   const openCanvas = useCallback(async (path: string) => {
@@ -660,9 +697,10 @@ export default function App() {
         {doc && (
           <Toolbar
             tool={tool} setTool={setTool}
-            color={color} setColor={setColor}
-            size={size} setSize={setSize}
-            fill={fill} setFill={setFill}
+            color={color} setColor={chooseColor}
+            size={size} setSize={chooseSize}
+            fill={fill} setFill={chooseFill}
+            hasSelection={selectedIds.size > 0}
             onImportMedia={importMedia}
             onUndo={undo} onRedo={redo}
             canUndo={hist.u > 0} canRedo={hist.r > 0}
@@ -689,7 +727,7 @@ export default function App() {
           {doc ? (
             <>
               <Canvas
-                doc={doc} setDoc={setDoc} pushHistory={pushHistory}
+                doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark}
                 tool={tool} setTool={setTool}
                 color={color} size={size} fill={fill}
                 selectedIds={selectedIds} setSelectedIds={setSelectedIds}

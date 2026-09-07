@@ -19,6 +19,8 @@ interface Props {
   notesOpen: boolean;
   noteCount: number;
   onToggleNotes: () => void;
+  /** Changes the labels: the controls restyle a selection when there is one. */
+  hasSelection: boolean;
 }
 
 const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
@@ -36,6 +38,8 @@ const TOOLS: { id: Tool; label: string; icon: ReactElement; hint: string }[] = [
 const SWATCHES = ["#111827", "#e7e9ec", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899"];
 // Softer tints for fills, so a filled shape sits behind its own outline
 // instead of shouting over the media underneath it.
+const NIBS = [1, 2, 4, 8, 16];
+
 const FILLS = ["#fee2e2", "#fef3c7", "#d1fae5", "#dbeafe", "#ede9fe", "#fce7f3", "#e5e7eb"];
 
 export default function Toolbar(p: Props) {
@@ -73,10 +77,32 @@ export default function Toolbar(p: Props) {
         {SWATCHES.map((c) => (
           <button key={c} className={"swatch" + (p.color.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setColor(c)} title={c} />
         ))}
+        <button
+          className={"swatch no-fill" + (p.size === 0 ? " active" : "")}
+          onClick={() => p.setSize(0)}
+          title="No outline"
+          aria-label="No outline"
+        />
       </div>
 
-      <div className="size-control" title="Stroke width">
-        <input type="range" min={0} max={24} value={p.size} onChange={(e) => p.setSize(Number(e.target.value))} />
+      {/* Fixed nibs, not a free slider.
+          The slider went down to 0, and 0 means "no stroke" — so it was
+          possible, and easy, to set the pen to invisible and conclude that
+          drawing was broken. These are all real widths; a shape that wants no
+          outline says so with the "no line" swatch above, deliberately. */}
+      <div className="size-row" role="group" aria-label="Stroke width">
+        {NIBS.map((n) => (
+          <button
+            key={n}
+            className={"nib" + (p.size === n ? " active" : "")}
+            onClick={() => p.setSize(n)}
+            title={`${n} pt`}
+            aria-label={`${n} point stroke`}
+            aria-pressed={p.size === n}
+          >
+            <span style={{ width: Math.min(16, 3 + n), height: Math.min(16, 3 + n) }} />
+          </button>
+        ))}
       </div>
 
       <div className="tool-divider" />

@@ -814,3 +814,20 @@ body {
   padding: 2px 7px; font-size: 12px; font-family: inherit; color: var(--text);
   text-align: center; justify-self: start; min-width: 30px; white-space: nowrap;
 }
+
+
+/* ---------------- Nib presets ---------------- */
+
+.size-row { display: flex; align-items: center; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.nib {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: 7px; background: none; cursor: pointer;
+}
+.nib span { display: block; border-radius: 50%; background: var(--muted); }
+.nib:hover { background: var(--bg); }
+.nib.active { border-color: var(--accent); background: var(--bg); }
+.nib.active span { background: var(--accent); }
+
+/* A sticky note is always light paper, so its text must stay dark ink even
+   when the rest of the app is in the dark palette. */
+.note, .note-text, .note-edit { color: #1c1917; }

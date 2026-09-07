@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
+import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
 import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
@@ -16,6 +17,8 @@ interface Props {
   setDoc: (next: CanvasDoc, history?: boolean) => void;
   /** Take an undo point for the board as it stands, before a gesture edits it. */
   pushHistory: () => void;
+  /** Which palette is showing, so ink can be resolved at paint time. */
+  dark: boolean;
   tool: Tool;
   setTool: (t: Tool) => void;
   color: string;
@@ -74,7 +77,7 @@ type Drag =
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, pushHistory, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
+  doc, setDoc, pushHistory, dark, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
   onBoardComment, onOpenAnnotation,
 }: Props) {
@@ -100,6 +103,22 @@ export default function Canvas({
   const [spaceDown, setSpaceDown] = useState(false);
 
   const cam = doc.camera;
+
+  /**
+   * What to paint an item's ink with, under the palette in force.
+   *
+   * Items drawn with the default ink carry a token rather than a literal, so
+   * they follow the palette. Anything with a deliberate colour keeps it — but
+   * a colour that has no contrast against this paper at all is still a mark
+   * you cannot see, so it falls back rather than vanishing.
+   */
+  const ink = useCallback((c: string) => {
+    const resolved = resolveInk(c, dark);
+    return contrastsWithPaper(resolved, dark) ? resolved : (dark ? INK.dark : INK.light);
+  }, [dark]);
+
+  /** Default ink is stored as a token; a chosen colour is stored literally. */
+  const inkToStore = isDefaultInk(color) ? INK_TOKEN : color;
 
   const selectedItems = useMemo(
     () => doc.items.filter((i) => selectedIds.has(i.id)),
@@ -261,19 +280,21 @@ export default function Canvas({
     switch (tool) {
       case "pen":
         drag.current = { mode: "draw" };
-        setDraft({ id: uid(), type: "stroke", points: [p.x, p.y], color, size });
+        // A shape may legitimately have no outline; a pen stroke may not — that is
+        // just an invisible mark. Clamp rather than let the tool draw nothing.
+        setDraft({ id: uid(), type: "stroke", points: [p.x, p.y], color: inkToStore, size: Math.max(1, size) });
         return;
       case "rect":
       case "ellipse":
       case "arrow": {
         const shape = tool === "arrow" ? "arrow" : tool;
         drag.current = { mode: "shape" };
-        setDraft({ id: uid(), type: "shape", shape, x: p.x, y: p.y, w: 0, h: 0, color, size, fill } as ShapeItem);
+        setDraft({ id: uid(), type: "shape", shape, x: p.x, y: p.y, w: 0, h: 0, color: inkToStore, size, fill } as ShapeItem);
         return;
       }
       case "text": {
         const id = uid();
-        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color, fontSize: 20 }] });
+        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize: 20 }] });
         setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }
@@ -466,10 +487,10 @@ export default function Canvas({
               <g key={it.id}>
                 {/* wide invisible hit area for easy selection */}
                 <path d={strokePath(it.points)} stroke="transparent" strokeWidth={Math.max(it.size, 14)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
-                <path d={strokePath(it.points)} stroke={it.color} strokeWidth={it.size} fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+                <path d={strokePath(it.points)} stroke={ink(it.color)} strokeWidth={it.size} fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: "none" }} />
               </g>
             ) : (
-              <ShapeView key={it.id} item={it as ShapeItem} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
+              <ShapeView key={it.id} item={it as ShapeItem} ink={ink} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
             )
           )}
         </svg>
@@ -482,9 +503,9 @@ export default function Canvas({
             <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: b.x, top: b.y, width: b.w, ...(it.type !== "text" ? { height: b.h } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
-                  <textarea autoFocus className="text-edit" style={{ color: it.color, fontSize: it.fontSize }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
+                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
                 ) : (
-                  <div className="text-view" style={{ color: it.color, fontSize: it.fontSize }} onDoubleClick={() => { setEditingId(it.id); setSelectedIds(new Set([it.id])); }}>
+                  <div className="text-view" style={{ color: ink(it.color), fontSize: it.fontSize }} onDoubleClick={() => { setEditingId(it.id); setSelectedIds(new Set([it.id])); }}>
                     {it.text || <span className="placeholder">Text</span>}
                   </div>
                 )
@@ -618,11 +639,12 @@ function isTyping(e: KeyboardEvent): boolean {
   return t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
 }
 
-function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
+function ShapeView({ item, ink, selectable, onDown }: { item: ShapeItem; ink: (c: string) => string; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
   const s = normRect(item);
+  const painted = ink(item.color);
   const filled = !!s.fill && s.fill !== "none";
   const common = {
-    stroke: s.size > 0 ? s.color : "none",
+    stroke: s.size > 0 ? painted : "none",
     strokeWidth: s.size,
     // An unfilled shape still needs a transparent fill so it stays clickable
     // across its whole body rather than only on the one-pixel outline.
@@ -640,8 +662,8 @@ function ShapeView({ item, selectable, onDown }: { item: ShapeItem; selectable: 
   const a2x = x2 - head * Math.cos(ang + Math.PI / 7), a2y = y2 - head * Math.sin(ang + Math.PI / 7);
   return (
     <g style={{ pointerEvents: selectable ? "visible" : "none", cursor: "move" }} onPointerDown={onDown}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={item.color} strokeWidth={item.size} strokeLinecap="round" />
-      <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={item.color} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={painted} strokeWidth={item.size} strokeLinecap="round" />
+      <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={painted} />
       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={Math.max(item.size, 14)} />
     </g>
   );
