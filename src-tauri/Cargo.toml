@@ -1,6 +1,6 @@
 [package]
 name = "researchcanvas"
-version = "0.1.0"
+version = "0.1.1"
 description = "Research Canvas — an infinite canvas for research"
 authors = ["Saikiran and contributors"]
 edition = "2021"
