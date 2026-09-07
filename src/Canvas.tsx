@@ -3,6 +3,7 @@ import type React from "react";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
+import { decidePress, isDoubleClick, travelled, widthForTool } from "./interaction";
 import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
@@ -37,7 +38,10 @@ interface Props {
   onOpenMedia: (itemId: string) => void;
   /** Follow an excerpt's backlink to where it was taken from. */
   onOpenExcerptSource: (ex: ExcerptItem) => void;
-  onBoardComment: (world: { x: number; y: number }) => void;
+  /** Commit a new note dropped on the board. Empty text is discarded. */
+  onBoardComment: (world: { x: number; y: number }, text: string) => void;
+  /** Edit an existing bubble in place. Empty text deletes it. */
+  onEditBoardComment: (a: Annotation, text: string) => void;
   onOpenAnnotation: (a: Annotation) => void;
 }
 
@@ -81,7 +85,7 @@ type Drag =
 export default function Canvas({
   doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
-  onBoardComment, onOpenAnnotation,
+  onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const docRef = useRef(doc);
@@ -94,6 +98,10 @@ export default function Canvas({
   const [draft, setDraft] = useState<Item | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [marquee, setMarquee] = useState<Rect | null>(null);
+  /** An unsaved bubble being typed into, at the spot it was dropped. */
+  const [draftComment, setDraftComment] = useState<{ x: number; y: number; text: string } | null>(null);
+  /** An existing bubble being edited in place. */
+  const [editingPin, setEditingPin] = useState<{ id: string; text: string } | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [hoverCursor, setHoverCursor] = useState<string | null>(null);
   const [view, setView] = useState({ w: 0, h: 0 });
@@ -318,10 +326,31 @@ export default function Canvas({
     const p = screenToWorld(e.clientX, e.clientY);
     hostRef.current!.setPointerCapture(e.pointerId);
 
-    if (e.button === 1 || tool === "hand" || spaceDown) {
-      if (locked) return;
+    // Nothing under the cursor reaches here: items stop propagation and are
+    // handled by itemPointerDown, so `hit` is null by construction.
+    const intent = decidePress({
+      tool, middleButton: e.button === 1, spaceDown, locked,
+      shiftKey: e.shiftKey, hit: null, handle: handleAt(local), isDouble: false,
+    });
+    if (!intent) return; // locked camera swallowed a pan
+
+    if (intent.kind === "pan") {
       drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
       setDragging(true);
+      return;
+    }
+
+    if (intent.kind === "resize" && selectionBox) {
+      pushHistory();
+      drag.current = { mode: "resize", handle: intent.handle, origin: p, startBox: selectionBox, snapshot: selectedItems };
+      setDragging(true);
+      return;
+    }
+
+    if (intent.kind === "marquee") {
+      drag.current = { mode: "marquee", origin: p, additive: intent.additive, base: new Set(selectedIds) };
+      setDragging(true);
+      if (!intent.additive) setSelectedIds(new Set());
       return;
     }
 
@@ -330,7 +359,7 @@ export default function Canvas({
         drag.current = { mode: "draw" };
         // A shape may legitimately have no outline; a pen stroke may not — that is
         // just an invisible mark. Clamp rather than let the tool draw nothing.
-        setDraft({ id: uid(), type: "stroke", points: [p.x, p.y], color: inkToStore, size: Math.max(1, size) });
+        setDraft({ id: uid(), type: "stroke", points: [p.x, p.y], color: inkToStore, size: widthForTool("pen", size) });
         return;
       case "rect":
       case "ellipse":
@@ -347,7 +376,9 @@ export default function Canvas({
         return;
       }
       case "comment":
-        onBoardComment(p);
+        // The bubble appears here and takes the typing directly.
+        setDraftComment({ x: p.x, y: p.y, text: "" });
+        setEditingPin(null);
         return;
       case "note": {
         const id = uid();
@@ -355,21 +386,8 @@ export default function Canvas({
         setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }
-      default: {
-        // A grab on a resize handle beats everything else under the cursor.
-        const handle = handleAt(local);
-        if (handle && selectionBox) {
-          pushHistory();
-          drag.current = { mode: "resize", handle, origin: p, startBox: selectionBox, snapshot: selectedItems };
-          setDragging(true);
-          return;
-        }
-        // Empty background: rubber-band select rather than pan, which is what
-        // makes selecting several things possible at all.
-        drag.current = { mode: "marquee", origin: p, additive: e.shiftKey, base: new Set(selectedIds) };
-        setDragging(true);
-        if (!e.shiftKey) setSelectedIds(new Set());
-      }
+      default:
+        break;
     }
   }
 
@@ -407,7 +425,7 @@ export default function Canvas({
     if (d.mode === "move") {
       let dx = p.x - d.origin.x;
       let dy = p.y - d.origin.y;
-      if (!d.moved && Math.hypot(dx, dy) * docRef.current.camera.zoom < DRAG_SLOP_PX) return;
+      if (!d.moved && travelled(d.origin, p, docRef.current.camera.zoom) < DRAG_SLOP_PX) return;
       if (!d.moved) pushHistory();
       d.moved = true;
 
@@ -481,9 +499,12 @@ export default function Canvas({
     // that leaves the item keeps tracking) redirects the click to the host,
     // so dblclick never reaches the text or note and neither could be edited.
     const now = e.timeStamp || Date.now();
-    const isDouble = lastClick.current.id === item.id && now - lastClick.current.at < 450;
+    const intent = decidePress({
+      tool, middleButton: false, spaceDown, locked, shiftKey: e.shiftKey,
+      hit: item, handle: null, isDouble: isDoubleClick(lastClick.current, item.id, now),
+    });
     lastClick.current = { id: item.id, at: now };
-    if (isDouble && beginEditing(item)) return;
+    if (intent?.kind === "edit" && beginEditing(item)) return;
 
     hostRef.current!.setPointerCapture(e.pointerId);
 
@@ -669,11 +690,51 @@ export default function Canvas({
             style={{ left: sx(a.anchor.worldX ?? 0), top: sy(a.anchor.worldY ?? 0), background: a.color }}
             title={`${a.author}: ${a.text}`}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onOpenAnnotation(a)}
+            onClick={() => { setEditingPin({ id: a.id, text: a.text }); setDraftComment(null); }}
+            onDoubleClick={() => onOpenAnnotation(a)}
           >
-            <span className="board-pin-text">{a.text}</span>
+            {editingPin?.id === a.id ? (
+              <textarea
+                autoFocus
+                className="pin-edit"
+                value={editingPin.text}
+                onChange={(e) => setEditingPin({ id: a.id, text: e.target.value })}
+                onPointerDown={(e) => e.stopPropagation()}
+                onBlur={() => { onEditBoardComment(a, editingPin.text); setEditingPin(null); }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Escape") { setEditingPin(null); }
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+                }}
+              />
+            ) : (
+              <span className="board-pin-text">{a.text}</span>
+            )}
           </button>
         ))}
+
+        {/* A new bubble, typed into where it was dropped. */}
+        {draftComment && (
+          <div
+            className="board-pin is-draft"
+            style={{ left: sx(draftComment.x), top: sy(draftComment.y), background: "#2563eb" }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <textarea
+              autoFocus
+              className="pin-edit"
+              placeholder="What's here?"
+              value={draftComment.text}
+              onChange={(e) => setDraftComment({ ...draftComment, text: e.target.value })}
+              onBlur={() => { onBoardComment(draftComment, draftComment.text); setDraftComment(null); }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") { setDraftComment(null); }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+              }}
+            />
+          </div>
+        )}
 
         {/* Alignment guides, drawn only while something is actually moving. */}
         {guides.map((g, n) => (

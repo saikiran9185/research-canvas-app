@@ -12,6 +12,7 @@ import {
   saveTextAs, saveBytesAs, pickNewCanvasPath, type DirEntry,
 } from "./storage";
 import { getTheme, applyTheme, isDark, isDefaultInk, INK, type Theme } from "./theme";
+import { applyFill, applyInk, applyWidth } from "./interaction";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -253,20 +254,17 @@ export default function App() {
 
   const chooseColor = useCallback((c: string) => {
     setColor(c);
-    // Ink: strokes, outlines and text. A note's `color` is its paper, not its
-    // ink, so it is left to the fill control instead.
-    restyle((i) => (i.type === "stroke" || i.type === "shape" || i.type === "text" ? { ...i, color: c } : i));
+    restyle((i) => applyInk(i, c));
   }, [restyle]);
 
   const chooseSize = useCallback((n: number) => {
     setSize(n);
-    restyle((i) => (i.type === "stroke" || i.type === "shape" ? { ...i, size: n } : i));
+    restyle((i) => applyWidth(i, n));
   }, [restyle]);
 
   const chooseFill = useCallback((c: string) => {
     setFill(c);
-    restyle((i) => (i.type === "shape" ? { ...i, fill: c }
-                  : i.type === "note" && c !== "none" ? { ...i, color: c } : i));
+    restyle((i) => applyFill(i, c));
   }, [restyle]);
 
   // --- file / folder ops -------------------------------------------------
@@ -473,14 +471,25 @@ export default function App() {
   }, [say]);
 
   /** The comment tool: click anywhere on the canvas to leave a note there. */
-  const addBoardComment = useCallback(async (world: { x: number; y: number }) => {
-    const text = await askText("Note on this spot", { placeholder: "What's here?", okLabel: "Add note" });
+  /**
+   * A note dropped on the board. No dialog: the canvas puts an empty bubble
+   * where you clicked and you type into the bubble itself. A modal asking
+   * "what's here?" makes you describe a place you are already pointing at,
+   * in a box that covers it.
+   */
+  const addBoardComment = useCallback((world: { x: number; y: number }, text: string) => {
     setTool("select");
-    if (!text) return;
+    if (!text.trim()) return;
     addAnnotation(newAnnotation(me, {
       itemId: "board", x: 0, y: 0, w: 0, h: 0, worldX: world.x, worldY: world.y,
-    }, text));
+    }, text.trim()));
   }, [addAnnotation, me]);
+
+  /** Editing a bubble in place, rather than in the side panel. */
+  const editBoardComment = useCallback((a: Annotation, text: string) => {
+    if (!text.trim()) { deleteAnnotation(a); return; }
+    updateAnnotation({ ...a, text: text.trim() });
+  }, [deleteAnnotation, updateAnnotation]);
 
   async function renameMe() {
     const name = await askText("Your name", {
@@ -739,6 +748,7 @@ export default function App() {
                 onOpenMedia={openViewer}
                 onOpenExcerptSource={openExcerptSource}
                 onBoardComment={addBoardComment}
+                onEditBoardComment={editBoardComment}
                 onOpenAnnotation={openAnnotation}
               />
               <div className="statusbar">

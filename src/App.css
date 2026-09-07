@@ -413,6 +413,17 @@ body {
   box-shadow: 0 3px 10px rgba(0,0,0,.2); text-align: left;
 }
 .board-pin-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-pin.is-draft { cursor: text; }
+
+/* Typing happens in the bubble itself, so the editor has to be the bubble —
+   no border, no background of its own, inheriting the bubble's type. */
+.pin-edit {
+  border: none; outline: none; resize: none; background: none;
+  color: inherit; font: inherit; min-width: 150px; width: 100%;
+  height: 1.35em; min-height: 1.35em; max-height: 6em;
+  overflow: hidden; padding: 0;
+}
+.pin-edit::placeholder { color: rgba(255,255,255,0.65); }
 
 /* =========================================================================
    Notes panel (whole board)
