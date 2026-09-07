@@ -40,19 +40,20 @@ because it became testable the moment it had an edge.
 
 ## What to do, in order
 
-### 1. Split `Canvas.tsx`
+### 1. Split `Canvas.tsx` — *started*
 
-It carries pointer input, keyboard handling, text measurement, the SVG layer,
-the DOM overlay, and six media sub-components. Extract in this order, easiest
-first:
+1,034 lines down to 753, in three extractions:
 
-    canvas/MediaCard.tsx     the six media components (~200 lines, pure view)
-    canvas/items.tsx         rendering one item, SVG and DOM
-    canvas/useSelection.ts   selection state and its keyboard commands
-    canvas/usePointer.ts     the drag state machine
+    canvas/MediaCard.tsx          95   the media cards, pure view
+    canvas/items.tsx              88   ink and shape rendering, pure view
+    canvas/useCanvasCommands.ts  168   every keyboard command, in one place
 
-What is left is a component that composes them, which is what a component
-should be.
+Still inside `Canvas.tsx` and worth lifting next:
+
+    the pointer drag state machine   ~200 lines
+    the DOM overlay                  ~150 lines
+
+What should remain is a component that composes them.
 
 ### 2. Give the sidebar and the library their own state
 

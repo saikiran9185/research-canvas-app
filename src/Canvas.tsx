@@ -3,19 +3,18 @@ import type React from "react";
 import { useLatest } from "./useLatest";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
-import { getStroke } from "perfect-freehand";
+import { inkOutline, normRect, polylinePath, ShapeView } from "./canvas/items";
+import { useCanvasCommands } from "./canvas/useCanvasCommands";
 import {
   DRAG_SLOP_PX, EDITOR_SETTLE_MS, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
-  MIN_ITEM_SIZE, NIB, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
+  MIN_ITEM_SIZE, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
 } from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
 import { decidePress, isDoubleClick, selectable, shouldCapturePointer, travelled, widthForTool } from "./interaction";
-import { ordered, reorder } from "./order";
-import { useMediaSrc } from "./media";
-import { renderPage } from "./pdf";
-import { loadDoc } from "./doc";
+import { ordered } from "./order";
+import { MediaImage, MediaVideo, MediaAudio, PdfThumb, DocThumb } from "./canvas/MediaCard";
 import {
-  bbox, CURSOR, cameraFor, expandToGroups, fitTo, HANDLES, handlePoint, minUsefulZoom,
+  bbox, CURSOR, expandToGroups, fitTo, HANDLES, handlePoint, minUsefulZoom,
   gridSpacing, normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
   type Guide, type HandleId, type Point, type Rect,
 } from "./geometry";
@@ -55,54 +54,9 @@ interface Props {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 
-/** The bare polyline: the hit area, and the fallback for a lone dot. */
-function polylinePath(points: number[]): string {
-  if (points.length < 2) return "";
-  if (points.length === 2) {
-    // A single tap is a dot. It used to be discarded entirely.
-    const [x, y] = points;
-    return `M ${x} ${y} L ${x + 0.01} ${y}`;
-  }
-  let d = `M ${points[0]} ${points[1]}`;
-  for (let i = 2; i < points.length; i += 2) d += ` L ${points[i]} ${points[i + 1]}`;
-  return d;
-}
 
-/**
- * The visible stroke: an outline, not a line.
- *
- * A constant-width stroked path reads as a cable rather than as a drawn mark.
- * perfect-freehand (MIT, by the author of tldraw) turns the input points into
- * the *outline* of a nib that tapers at the ends and thins as the hand moves
- * faster — which is what makes ink look like ink. We fill that outline.
- *
- * It is a single-purpose utility, not a framework: it takes points and returns
- * a polygon, and knows nothing about this app.
- */
-function inkOutline(points: number[], size: number): string {
-  if (points.length < 4) return "";
-  const pts: number[][] = [];
-  for (let i = 0; i < points.length; i += 2) pts.push([points[i], points[i + 1]]);
-  const outline = getStroke(pts, {
-    size,
-    ...NIB,
-    simulatePressure: true,
-    last: true,
-  });
-  if (!outline.length) return "";
-  let d = `M ${outline[0][0].toFixed(2)} ${outline[0][1].toFixed(2)}`;
-  for (let i = 1; i < outline.length; i++) d += ` L ${outline[i][0].toFixed(2)} ${outline[i][1].toFixed(2)}`;
-  return d + " Z";
-}
 
-function normRect(s: ShapeItem): ShapeItem {
-  const x = s.w < 0 ? s.x + s.w : s.x;
-  const y = s.h < 0 ? s.y + s.h : s.y;
-  return { ...s, x, y, w: Math.abs(s.w), h: Math.abs(s.h) };
-}
 
-/** Give a pasted or duplicated item a fresh identity. */
-const reid = (it: Item): Item => ({ ...it, id: uid() });
 
 type Drag =
   | { mode: "pan"; sx: number; sy: number; cam: { x: number; y: number; zoom: number } }
@@ -278,128 +232,10 @@ export default function Canvas({
     return () => host.removeEventListener("wheel", onWheel);
   }, [setDoc, locked]);
 
-  // --- keyboard ----------------------------------------------------------
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !isTyping(e)) setSpaceDown(true);
-      if (isTyping(e)) return;
-      const d = docRef.current;
-      const sel = selRef.current;
-      const mod = e.metaKey || e.ctrlKey;
-
-      if ((e.key === "Backspace" || e.key === "Delete") && sel.size) {
-        e.preventDefault();
-        setDoc({ ...d, items: d.items.filter((i) => !sel.has(i.id)) });
-        setSelectedIds(new Set());
-        return;
-      }
-
-      if (e.key === "Escape") { setSelectedIds(new Set()); setEditingId(null); return; }
-
-      if (e.key === "Enter" && sel.size === 1) {
-        const only = d.items.find((i) => sel.has(i.id));
-        if (only && beginEditing(only)) e.preventDefault();
-        return;
-      }
-
-      if (mod && e.key.toLowerCase() === "a") {
-        e.preventDefault();
-        setSelectedIds(new Set(selectable(d.items).map((i) => i.id)));
-        return;
-      }
-
-      if (mod && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          if (!sel.size) return;
-          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: undefined } : i)) });
-        } else if (sel.size > 1) {
-          const gid = uid();
-          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: gid } : i)) });
-        }
-        return;
-      }
-
-      if (mod && e.key.toLowerCase() === "l") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          // The way back. A locked item cannot be selected, so unlocking has
-          // to work on the board rather than on a selection — otherwise
-          // locking something is a one-way door.
-          setDoc({ ...d, items: d.items.map((i) => (i.locked ? { ...i, locked: undefined } : i)) });
-        } else if (sel.size) {
-          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, locked: true } : i)) });
-          setSelectedIds(new Set());
-        }
-        return;
-      }
-
-      if (mod && e.key.toLowerCase() === "c" && sel.size) {
-        clipboard.current = d.items.filter((i) => sel.has(i.id));
-        return;
-      }
-
-      if (mod && e.key.toLowerCase() === "v" && clipboard.current.length) {
-        e.preventDefault();
-        const regroup = new Map<string, string>();
-        const copies = clipboard.current.map((i) => {
-          const copy = reid(translate(i, 24, 24));
-          if (!i.groupId) return copy;
-          if (!regroup.has(i.groupId)) regroup.set(i.groupId, uid());
-          return { ...copy, groupId: regroup.get(i.groupId) };
-        });
-        setDoc({ ...d, items: [...d.items, ...copies] });
-        setSelectedIds(new Set(copies.map((i) => i.id)));
-        return;
-      }
-
-      if (mod && e.key.toLowerCase() === "d" && sel.size) {
-        e.preventDefault();
-        const copies = d.items.filter((i) => sel.has(i.id)).map((i) => reid(translate(i, 24, 24)));
-        setDoc({ ...d, items: [...d.items, ...copies] });
-        setSelectedIds(new Set(copies.map((i) => i.id)));
-        return;
-      }
-
-      // Z-order changes each moved item's own stacking index rather than its
-      // position in a shared list, so two people reordering the same board
-      // converge instead of overwriting each other. See order.ts.
-      if (mod && (e.key === "]" || e.key === "[")) {
-        e.preventDefault();
-        if (!sel.size) return;
-        setDoc({ ...d, items: reorder(d.items, sel, e.key === "]" ? "front" : "back") });
-        return;
-      }
-
-      // Zoom to fit: everything, or just the selection if there is one.
-      if (mod && (e.key === "1" || e.key === "0")) {
-        e.preventDefault();
-        const host = hostRef.current;
-        if (!host) return;
-        const target = union(sel.size ? d.items.filter((i) => sel.has(i.id)) : d.items, measured);
-        if (!target) return;
-        setDoc({ ...d, camera: cameraFor(target, host.clientWidth, host.clientHeight) }, false);
-        return;
-      }
-
-      // Arrow keys nudge — 1px, or 10 with shift.
-      if (sel.size && e.key.startsWith("Arrow")) {
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
-        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-        setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? translate(i, dx, dy) : i)) });
-      }
-    };
-
-    const up = (e: KeyboardEvent) => { if (e.code === "Space") setSpaceDown(false); };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, [setDoc, setSelectedIds]);
+  useCanvasCommands({
+    docRef, selRef, hostRef, measured, setDoc, setSelectedIds,
+    setEditingId, setSpaceDown, beginEditing, clipboard,
+  });
 
   // --- pointer -----------------------------------------------------------
   function onHostPointerDown(e: React.PointerEvent) {
@@ -914,121 +750,4 @@ export default function Canvas({
   );
 }
 
-function isTyping(e: KeyboardEvent): boolean {
-  const t = e.target as HTMLElement;
-  return t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
-}
 
-function ShapeView({ item, ink, hitBand, selectable, onDown }: { item: ShapeItem; ink: (c: string) => string; hitBand: number; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
-  const s = normRect(item);
-  const painted = ink(item.color);
-  const filled = !!s.fill && s.fill !== "none";
-  const common = {
-    stroke: s.size > 0 ? painted : "none",
-    strokeWidth: s.size,
-    // An unfilled shape still needs a transparent fill so it stays clickable
-    // across its whole body rather than only on the one-pixel outline.
-    fill: filled ? s.fill : "transparent",
-    style: { pointerEvents: (selectable ? "visible" : "none") as any, cursor: "move" },
-    onPointerDown: onDown,
-  };
-  if (s.shape === "rect") return <rect x={s.x} y={s.y} width={s.w} height={s.h} rx={4} {...common} />;
-  if (s.shape === "ellipse") return <ellipse cx={s.x + s.w / 2} cy={s.y + s.h / 2} rx={s.w / 2} ry={s.h / 2} {...common} />;
-  // arrow: item stored raw so direction is preserved
-  const x1 = item.x, y1 = item.y, x2 = item.x + item.w, y2 = item.y + item.h;
-  const ang = Math.atan2(y2 - y1, x2 - x1);
-  const head = 6 + item.size * 2.2;
-  const a1x = x2 - head * Math.cos(ang - Math.PI / 7), a1y = y2 - head * Math.sin(ang - Math.PI / 7);
-  const a2x = x2 - head * Math.cos(ang + Math.PI / 7), a2y = y2 - head * Math.sin(ang + Math.PI / 7);
-  return (
-    <g style={{ pointerEvents: selectable ? "visible" : "none", cursor: "move" }} onPointerDown={onDown}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={painted} strokeWidth={item.size} strokeLinecap="round" />
-      <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={painted} />
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={hitBand} />
-    </g>
-  );
-}
-
-
-/**
- * First-page preview of a PDF card.
- *
- * The raster has to follow the camera: rendered once at a fixed width, the page
- * turns to mush the moment you zoom in on it — which is exactly when you want
- * to read it. The target width is quantised to doubling steps so panning and
- * pinching do not trigger a re-render on every frame.
- */
-function PdfThumb({ item, zoom }: { item: MediaItem; zoom: number }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
-  // The width the card actually occupies in device pixels, rounded up to the
-  // next power of two so there are only a handful of distinct render sizes.
-  const wanted = Math.min(4096, Math.max(
-    512,
-    2 ** Math.ceil(Math.log2(Math.max(1, item.w * zoom * dpr))),
-  ));
-
-  useEffect(() => {
-    let alive = true;
-    renderPage(item.src, item.page ?? 1, wanted)
-      .then((r) => { if (alive) { setUrl(r.url); setFailed(false); } })
-      .catch(() => { if (alive) setFailed(true); });
-    return () => { alive = false; };
-  }, [item.src, item.page, wanted]);
-
-  if (failed) return <div className="pdf-card pdf-failed">{item.name}</div>;
-  if (!url) return <div className="pdf-card">Loading {item.name}…</div>;
-  return <img className="pdf-page" src={url} alt={item.name} draggable={false} />;
-}
-
-
-/** A readable preview of a document card, so the board shows the words. */
-function DocThumb({ item }: { item: MediaItem }) {
-  const [html, setHtml] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    loadDoc(item.src)
-      .then((c) => { if (alive) setHtml(c.html); })
-      .catch(() => { if (alive) setFailed(true); });
-    return () => { alive = false; };
-  }, [item.src]);
-
-  if (failed) return <div className="pdf-card pdf-failed">{item.name}</div>;
-  if (html === null) return <div className="pdf-card">Reading {item.name}…</div>;
-  return (
-    <div className="doc-card">
-      <div className="doc-card-name">{item.name}</div>
-      <div className="doc-card-body" dangerouslySetInnerHTML={{ __html: html }} />
-    </div>
-  );
-}
-
-
-/** An image card. Recovers by itself if the asset protocol cannot serve it. */
-function MediaImage({ item }: { item: MediaItem }) {
-  const { src, onError, failed } = useMediaSrc(item.src);
-  if (failed) return <div className="pdf-card pdf-failed">Could not load {item.name}</div>;
-  return <img src={src} onError={onError} draggable={false} alt={item.name} />;
-}
-
-function MediaVideo({ item }: { item: MediaItem }) {
-  const { src, onError, failed } = useMediaSrc(item.src);
-  if (failed) return <div className="pdf-card pdf-failed">Could not load {item.name}</div>;
-  return <video src={src} onError={onError} controls onPointerDown={(e) => e.stopPropagation()} />;
-}
-
-function MediaAudio({ item }: { item: MediaItem }) {
-  const { src, onError, failed } = useMediaSrc(item.src);
-  return (
-    <div className="audio-card" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="audio-name">♪ {item.name}</div>
-      {failed
-        ? <div className="pdf-failed">Could not load this file</div>
-        : <audio src={src} onError={onError} controls />}
-    </div>
-  );
-}

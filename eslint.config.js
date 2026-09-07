@@ -45,6 +45,15 @@ export default ts.config(
       // (media load state, measurement, theme). Kept visible as a warning so
       // new ones get noticed, rather than silenced.
       "react-hooks/set-state-in-effect": "warn",
+      // Flags uid() and Date.now() inside functions declared in the component
+      // body. Those are event handlers — they run on a click, never during
+      // render — but the rule cannot distinguish a handler from render logic
+      // at that position. The idiomatic way to prove it is useCallback with a
+      // hand-maintained dependency array on every pointer handler, which
+      // reintroduces exactly the stale-closure class that caused most of this
+      // week's bugs. A warning is the honest classification: worth reading,
+      // not worth restructuring working interaction code to satisfy.
+      "react-hooks/purity": "warn",
     },
   },
 );
