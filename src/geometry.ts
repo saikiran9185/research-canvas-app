@@ -152,7 +152,8 @@ export function handlePoint(r: Rect, h: HandleId): Point {
 
 /** Apply a handle drag to a box. Keeps it non-negative and above `min`. */
 export function resizeRect(r: Rect, h: HandleId, dx: number, dy: number, min: number): Rect {
-  let { x, y, w, ...rest } = r;
+  let { x, y, w } = r;
+  const rest = { h: r.h };
   let hh = rest.h;
   if (h.includes("w")) { x += dx; w -= dx; }
   if (h.includes("e")) { w += dx; }
@@ -260,7 +261,7 @@ export function snapMove(moving: Rect, others: Rect[], tolerance: number): Snap 
   });
   const mine = lanes(moving);
 
-  let best = { x: { dist: tolerance, delta: 0, at: 0, other: null as Rect | null },
+  const best = { x: { dist: tolerance, delta: 0, at: 0, other: null as Rect | null },
                y: { dist: tolerance, delta: 0, at: 0, other: null as Rect | null } };
 
   for (const o of others) {

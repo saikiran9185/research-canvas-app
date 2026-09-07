@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { useLatest } from "./useLatest";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
 import { getStroke } from "perfect-freehand";
@@ -118,12 +119,8 @@ export default function Canvas({
   onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const docRef = useRef(doc);
-  docRef.current = doc;
-  const selRef = useRef(selectedIds);
-  selRef.current = selectedIds;
-  const toolRef = useRef(tool);
-  toolRef.current = tool;
+  const docRef = useLatest(doc);
+  const selRef = useLatest(selectedIds);
 
   const [draft, setDraft] = useState<Item | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -610,7 +607,7 @@ export default function Canvas({
     let next: Set<string>;
     if (e.shiftKey) {
       next = new Set(selectedIds);
-      next.has(item.id) ? next.delete(item.id) : next.add(item.id);
+      if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
     } else {
       // Clicking inside an existing multi-selection keeps it, so the whole
       // group can be dragged in one gesture.

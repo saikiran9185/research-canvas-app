@@ -1002,3 +1002,31 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* =========================================================================
+   Crash screen
+   ========================================================================= */
+/* Before this existed, a render error unmounted the tree and left a blank
+   window — which in a drawing app reads as lost work. It is not: the board is
+   a file, already saved. Say so first, before the error text. */
+.crash {
+  max-width: 34rem; margin: 12vh auto; padding: var(--s-6);
+  color: var(--text); font-size: var(--text-md); line-height: 1.55;
+}
+.crash h1 { font-size: var(--text-xl); margin: 0 0 var(--s-3); }
+.crash p { color: var(--muted); margin: 0 0 var(--s-3); }
+.crash strong { color: var(--text); }
+.crash-detail {
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s-3); font-size: var(--text-sm); overflow-x: auto;
+  white-space: pre-wrap; word-break: break-word; margin: 0 0 var(--s-4);
+}
+.crash-actions { display: flex; gap: var(--s-2); margin-bottom: var(--s-4); }
+.crash-actions button {
+  padding: var(--s-2) var(--s-4); border-radius: var(--r-md);
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font-size: var(--text-md); cursor: pointer;
+}
+.crash-actions .cta { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.crash-hint { font-size: var(--text-sm); }

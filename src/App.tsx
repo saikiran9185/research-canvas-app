@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLatest } from "./useLatest";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Canvas from "./Canvas";
@@ -35,10 +36,8 @@ export default function App() {
 
   const [doc, setDocState] = useState<CanvasDoc | null>(null);
   const [canvasPath, setCanvasPath] = useState<string | null>(null);
-  const docRef = useRef<CanvasDoc | null>(null);
-  docRef.current = doc;
-  const pathRef = useRef<string | null>(null);
-  pathRef.current = canvasPath;
+  const docRef = useLatest(doc);
+  const pathRef = useLatest(canvasPath);
 
   const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState<string>(() => (isDark(getTheme()) ? INK.dark : INK.light));
@@ -323,7 +322,7 @@ export default function App() {
       okLabel: "Create",
     });
     if (!name) return;
-    await storage.makeDir(`${currentDir}/${name.replace(/[\/\\:]/g, "-")}`);
+    await storage.makeDir(`${currentDir}/${name.replace(/[/\\:]/g, "-")}`);
     await refresh(currentDir);
     say(`Created “${name}”`);
   }
@@ -451,7 +450,7 @@ export default function App() {
     const w = 300;
     const h = e.image ? 250 : 170;
     // Place it clear of the source card, and clear of anything already there.
-    let x = src && "x" in src ? src.x + (src as MediaItem).w + 48 : 0;
+    const x = src && "x" in src ? src.x + (src as MediaItem).w + 48 : 0;
     let y = src && "y" in src ? src.y : 0;
     while (d.items.some((i) => "x" in i && Math.abs(i.x - x) < 24 && Math.abs(i.y - y) < 24)) {
       y += 32;
