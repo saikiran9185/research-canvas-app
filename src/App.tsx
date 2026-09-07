@@ -44,6 +44,8 @@ export default function App() {
   const [fill, setFill] = useState("none");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showShortcuts, setShowShortcuts] = useState(false);
+  /** Camera lock: freezes pan and zoom so a stray gesture cannot lose the board. */
+  const [locked, setLocked] = useState(false);
 
   // --- annotation layer --------------------------------------------------
   const [me, setMe] = useState<Identity>(() => getIdentity());
@@ -705,6 +707,7 @@ export default function App() {
             onUndo={undo} onRedo={redo}
             canUndo={hist.u > 0} canRedo={hist.r > 0}
             onZoomFit={zoomFit}
+            locked={locked} onToggleLock={() => setLocked((v) => !v)}
             notesOpen={panelOpen}
             noteCount={annotations.filter((a) => !a.resolved).length}
             onToggleNotes={() => setPanelOpen((v) => !v)}
@@ -727,7 +730,7 @@ export default function App() {
           {doc ? (
             <>
               <Canvas
-                doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark}
+                doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark} locked={locked}
                 tool={tool} setTool={setTool}
                 color={color} size={size} fill={fill}
                 selectedIds={selectedIds} setSelectedIds={setSelectedIds}

@@ -209,4 +209,41 @@ check("a marquee dragged up-and-left is still a valid box", () => {
   assert.deepEqual(G.normalize({ x: 100, y: 100 }, { x: 20, y: 40 }), { x: 20, y: 40, w: 80, h: 60 });
 });
 
+// ---- grouping -----------------------------------------------------------
+
+const grouped = (id, gid) => ({ ...note(0, 0, 10, 10), id, groupId: gid });
+
+check("selecting one member of a group takes the whole group", () => {
+  const items = [grouped("a", "g1"), grouped("b", "g1"), grouped("c", undefined)];
+  const out = G.expandToGroups(items, new Set(["a"]));
+  assert.deepEqual([...out].sort(), ["a", "b"]);
+});
+
+check("an ungrouped item is unaffected", () => {
+  const items = [grouped("a", "g1"), grouped("c", undefined)];
+  assert.deepEqual([...G.expandToGroups(items, new Set(["c"]))], ["c"]);
+});
+
+check("two groups touched at once both come along whole", () => {
+  const items = [grouped("a", "g1"), grouped("b", "g1"), grouped("c", "g2"), grouped("d", "g2")];
+  const out = G.expandToGroups(items, new Set(["a", "c"]));
+  assert.deepEqual([...out].sort(), ["a", "b", "c", "d"]);
+});
+
+// ---- zoom floor ---------------------------------------------------------
+
+check("an empty board keeps the absolute zoom floor", () => {
+  assert.equal(G.minUsefulZoom(null, 800, 600), 0.05);
+});
+
+check("you can pull back past the fit, but not without limit", () => {
+  const floor = G.minUsefulZoom({ x: 0, y: 0, w: 1600, h: 1200 }, 800, 600);
+  assert.equal(floor, 0.25, "half the zoom that fits the content");
+  assert.ok(floor > 0.05, "and well above the absolute floor");
+});
+
+check("a tiny board does not force you to zoom in", () => {
+  assert.ok(G.minUsefulZoom({ x: 0, y: 0, w: 10, h: 10 }, 800, 600) <= 1);
+});
+
 console.log(`\n${passed} geometry checks passed`);

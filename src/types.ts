@@ -27,6 +27,11 @@ export interface Camera {
 
 interface Base {
   id: string;
+  /**
+   * Items sharing a group id move, scale and delete as one. Optional, so every
+   * board written before grouping existed still loads unchanged.
+   */
+  groupId?: string;
 }
 
 export interface StrokeItem extends Base {

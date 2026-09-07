@@ -7,8 +7,8 @@ import { useMediaSrc } from "./media";
 import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
 import {
-  bbox, CURSOR, cameraFor, fitTo, HANDLES, handlePoint, normalize,
-  overlaps, resizeRect, snapMove, toWorld, translate, union,
+  bbox, CURSOR, cameraFor, expandToGroups, fitTo, HANDLES, handlePoint, minUsefulZoom,
+  normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
   type Guide, type HandleId, type Point, type Rect,
 } from "./geometry";
 
@@ -19,6 +19,8 @@ interface Props {
   pushHistory: () => void;
   /** Which palette is showing, so ink can be resolved at paint time. */
   dark: boolean;
+  /** Freezes the camera, so a stray gesture cannot lose your place. */
+  locked: boolean;
   tool: Tool;
   setTool: (t: Tool) => void;
   color: string;
@@ -77,7 +79,7 @@ type Drag =
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, pushHistory, dark, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
+  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
   onBoardComment, onOpenAnnotation,
 }: Props) {
@@ -103,6 +105,13 @@ export default function Canvas({
   const [spaceDown, setSpaceDown] = useState(false);
 
   const cam = doc.camera;
+
+  /** Select, but never split a group. */
+  const select = useCallback((ids: Set<string>) => {
+    const next = expandToGroups(docRef.current.items, ids);
+    selRef.current = next;
+    setSelectedIds(next);
+  }, [setSelectedIds]);
 
   /**
    * What to paint an item's ink with, under the palette in force.
@@ -160,15 +169,18 @@ export default function Canvas({
       if (e.ctrlKey || e.metaKey) {
         const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
         const wx = (sx - c.x) / c.zoom, wy = (sy - c.y) / c.zoom;
-        const zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.01), 0.05, 8);
+        const floor = locked ? c.zoom
+          : minUsefulZoom(union(docRef.current.items), host.clientWidth, host.clientHeight);
+        const zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.01), floor, locked ? c.zoom : 8);
         setDoc({ ...docRef.current, camera: { x: sx - wx * zoom, y: sy - wy * zoom, zoom } }, false);
       } else {
+        if (locked) return;
         setDoc({ ...docRef.current, camera: { ...c, x: c.x - e.deltaX, y: c.y - e.deltaY } }, false);
       }
     };
     host.addEventListener("wheel", onWheel, { passive: false });
     return () => host.removeEventListener("wheel", onWheel);
-  }, [setDoc]);
+  }, [setDoc, locked]);
 
   // --- keyboard ----------------------------------------------------------
   useEffect(() => {
@@ -201,6 +213,18 @@ export default function Canvas({
         return;
       }
 
+      if (mod && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (!sel.size) return;
+          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: undefined } : i)) });
+        } else if (sel.size > 1) {
+          const gid = uid();
+          setDoc({ ...d, items: d.items.map((i) => (sel.has(i.id) ? { ...i, groupId: gid } : i)) });
+        }
+        return;
+      }
+
       if (mod && e.key.toLowerCase() === "c" && sel.size) {
         clipboard.current = d.items.filter((i) => sel.has(i.id));
         return;
@@ -208,7 +232,13 @@ export default function Canvas({
 
       if (mod && e.key.toLowerCase() === "v" && clipboard.current.length) {
         e.preventDefault();
-        const copies = clipboard.current.map((i) => reid(translate(i, 24, 24)));
+        const regroup = new Map<string, string>();
+        const copies = clipboard.current.map((i) => {
+          const copy = reid(translate(i, 24, 24));
+          if (!i.groupId) return copy;
+          if (!regroup.has(i.groupId)) regroup.set(i.groupId, uid());
+          return { ...copy, groupId: regroup.get(i.groupId) };
+        });
         setDoc({ ...d, items: [...d.items, ...copies] });
         setSelectedIds(new Set(copies.map((i) => i.id)));
         return;
@@ -272,6 +302,7 @@ export default function Canvas({
     hostRef.current!.setPointerCapture(e.pointerId);
 
     if (e.button === 1 || tool === "hand" || spaceDown) {
+      if (locked) return;
       drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, cam: { ...docRef.current.camera } };
       setDragging(true);
       return;
@@ -353,7 +384,7 @@ export default function Canvas({
       const box = normalize(d.origin, p);
       setMarquee(box);
       const inside = docRef.current.items.filter((i) => overlaps(bbox(i), box)).map((i) => i.id);
-      setSelectedIds(d.additive ? new Set([...d.base, ...inside]) : new Set(inside));
+      select(d.additive ? new Set([...d.base, ...inside]) : new Set(inside));
       return;
     }
     if (d.mode === "move") {
@@ -430,8 +461,7 @@ export default function Canvas({
       // group can be dragged in one gesture.
       next = selectedIds.has(item.id) ? new Set(selectedIds) : new Set([item.id]);
     }
-    setSelectedIds(next);
-    selRef.current = next;
+    select(next);
     drag.current = {
       mode: "move",
       origin: screenToWorld(e.clientX, e.clientY),

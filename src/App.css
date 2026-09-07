@@ -206,37 +206,84 @@ body {
 }
 
 /* ---------------- Toolbar ---------------- */
-/* The rail is centred, but it must never grow past the window: with the fill
-   controls added it became taller than a laptop screen and clipped Select and
-   Pan off the top, leaving no way back to them. Cap it and let it scroll. */
+/* A horizontal rail along the bottom edge, where a canvas app's tools belong:
+   it never competes with the board for height, and it stays the width of the
+   tools rather than the width of every colour anyone might want — the style
+   controls live in a panel above it, shown only when they can do something.
+   It can be dragged anywhere, and remembers where you put it. */
 .toolbar {
-  position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
   z-index: 10; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 16px; padding: 8px; display: flex; flex-direction: column; gap: 4px;
-  box-shadow: var(--shadow-md); align-items: center;
-  max-height: calc(100% - 24px);
-  overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: none;
+  border-radius: 14px; padding: 6px 8px;
+  display: flex; flex-direction: row; align-items: center; gap: 2px;
+  box-shadow: var(--shadow-md);
+  max-width: calc(100% - 32px);
+  user-select: none;
 }
-.toolbar::-webkit-scrollbar { width: 0; height: 0; }
-/* Nothing in the rail may shrink, or the buttons squash instead of scrolling. */
 .toolbar > * { flex: none; }
+
+.toolbar-grip {
+  width: 14px; height: 30px; margin-right: 4px;
+  display: grid; place-items: center; cursor: grab;
+  color: var(--muted); border-radius: 6px;
+}
+.toolbar-grip:hover { background: var(--bg); color: var(--text); }
+.toolbar-grip:active { cursor: grabbing; }
+.toolbar-grip svg { width: 8px; height: 20px; fill: currentColor; }
+
 .tool-btn {
-  width: 36px; height: 36px; border: none; background: transparent; color: var(--text);
-  border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border: none; background: transparent; color: var(--text);
+  border-radius: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .tool-btn:hover { background: var(--bg); }
 .tool-btn.active { background: var(--accent); color: #fff; }
 .tool-btn:disabled { opacity: 0.35; cursor: default; }
 .tool-btn svg { width: 20px; height: 20px; }
-.tool-divider { width: 22px; height: 1px; background: var(--line); margin: 2px 0; }
-.color-well { width: 26px; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+
+/* Vertical now that the rail runs horizontally. */
+.tool-divider { width: 1px; height: 22px; background: var(--line); margin: 0 5px; }
+
+/* The one control that stands in for the whole style panel: current line
+   colour as a ring, current fill as the disc inside it. */
+.style-trigger {
+  width: 34px; height: 34px; border: none; background: transparent;
+  border-radius: 9px; cursor: pointer; position: relative;
+  display: grid; place-items: center;
+}
+.style-trigger:hover:not(:disabled) { background: var(--bg); }
+.style-trigger.active { background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.style-trigger:disabled { opacity: 0.3; cursor: default; }
+.style-ink {
+  position: absolute; width: 20px; height: 20px; border-radius: 50%;
+  border: 3px solid currentColor; box-sizing: border-box; background: none !important;
+}
+.style-fill {
+  position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(128,128,128,0.35);
+}
+
+/* The style panel floats above the rail rather than inside it. */
+.style-pop {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: var(--shadow-md); min-width: 232px;
+}
+.style-section { display: flex; flex-direction: column; gap: 7px; }
+.style-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 600;
+}
+
+.color-well { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
 .color-well input { width: 150%; height: 150%; margin: -25%; border: none; padding: 0; cursor: pointer; background: none; }
-.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 2px 0; }
-.swatch { width: 13px; height: 13px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; padding: 0; }
+
+.swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.swatch {
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 1px solid rgba(128,128,128,0.28); cursor: pointer; padding: 0;
+}
 .swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
-.size-control { padding: 4px 0; }
-.size-control input { writing-mode: vertical-lr; direction: rtl; width: 18px; height: 46px; accent-color: var(--accent); }
 
 /* ---------------- Status + welcome ---------------- */
 .statusbar {

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import type { Tool } from "./types";
 
@@ -16,6 +17,8 @@ interface Props {
   canUndo: boolean;
   canRedo: boolean;
   onZoomFit: () => void;
+  locked: boolean;
+  onToggleLock: () => void;
   notesOpen: boolean;
   noteCount: number;
   onToggleNotes: () => void;
@@ -42,21 +45,106 @@ const NIBS = [1, 2, 4, 8, 16];
 
 const FILLS = ["#fee2e2", "#fef3c7", "#d1fae5", "#dbeafe", "#ede9fe", "#fce7f3", "#e5e7eb"];
 
+/** Where the rail sits, remembered between sessions. */
+const POS_KEY = "rc.toolbar.pos";
+
+function loadPos(): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(POS_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return typeof v?.x === "number" && typeof v?.y === "number" ? v : null;
+  } catch { return null; }
+}
+
 export default function Toolbar(p: Props) {
+  // null = parked at the default place along the bottom edge.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(loadPos);
+  const [stylesOpen, setStylesOpen] = useState(false);
+  const railRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+
+  // The style controls belong on screen when they can do something: a drawing
+  // tool is armed, or something is selected to restyle. The rest of the time
+  // they are just a wall of swatches over the board.
+  const relevant = p.hasSelection || ["pen", "rect", "ellipse", "arrow", "text", "note"].includes(p.tool);
+  useEffect(() => { if (!relevant) setStylesOpen(false); }, [relevant]);
+
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const d = dragRef.current;
+      const el = railRef.current;
+      if (!d || !el) return;
+      // Keep it reachable: the rail may never be dragged off the window.
+      const maxX = window.innerWidth - el.offsetWidth - 8;
+      const maxY = window.innerHeight - el.offsetHeight - 8;
+      setPos({
+        x: Math.max(8, Math.min(maxX, e.clientX - d.dx)),
+        y: Math.max(8, Math.min(maxY, e.clientY - d.dy)),
+      });
+    };
+    const up = () => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      setPos((v) => {
+        try { if (v) localStorage.setItem(POS_KEY, JSON.stringify(v)); } catch { /* non-fatal */ }
+        return v;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, []);
+
+  const startDrag = (e: React.PointerEvent) => {
+    const el = railRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    dragRef.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    // Switch from the centred default to absolute coordinates on first grab,
+    // so the rail does not jump out from under the cursor.
+    setPos({ x: r.left, y: r.top });
+  };
+
+  const resetPos = () => {
+    setPos(null);
+    try { localStorage.removeItem(POS_KEY); } catch { /* non-fatal */ }
+  };
+
+  const style = pos ? { left: pos.x, top: pos.y, bottom: "auto", transform: "none" } : undefined;
+
   return (
-    <div className="toolbar">
+    <div className="toolbar" ref={railRef} style={style}>
+      {/* Drag anywhere by the grip; double-click it to park it again. */}
+      <div
+        className="toolbar-grip"
+        onPointerDown={startDrag}
+        onDoubleClick={resetPos}
+        title="Drag to move · double-click to reset"
+        role="button"
+        aria-label="Move toolbar"
+        tabIndex={0}
+      >
+        <svg viewBox="0 0 8 20" aria-hidden="true"><circle cx="2.4" cy="6" r="1.1" /><circle cx="5.6" cy="6" r="1.1" /><circle cx="2.4" cy="10" r="1.1" /><circle cx="5.6" cy="10" r="1.1" /><circle cx="2.4" cy="14" r="1.1" /><circle cx="5.6" cy="14" r="1.1" /></svg>
+      </div>
+
       {TOOLS.map((t) => (
         <button
           key={t.id}
           className={"tool-btn" + (p.tool === t.id ? " active" : "")}
           title={`${t.label} (${t.hint})`}
+          aria-label={t.label}
+          aria-pressed={p.tool === t.id}
           onClick={() => p.setTool(t.id)}
         >
           <svg viewBox="0 0 24 24" stroke="currentColor" fill="currentColor">{t.icon}</svg>
         </button>
       ))}
 
-      <button className="tool-btn" title="Import image, video, audio, PDF or 3D model" onClick={p.onImportMedia}>
+      <button className="tool-btn" title="Import image, video, audio, PDF or 3D model" aria-label="Import media" onClick={p.onImportMedia}>
         <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.6">
           <rect x="3" y="5" width="18" height="14" rx="2" />
           <circle cx="8.5" cy="10" r="1.6" fill="currentColor" stroke="none" />
@@ -66,68 +154,86 @@ export default function Toolbar(p: Props) {
 
       <div className="tool-divider" />
 
-      {/* Stroke: the colour of every line, outline, arrow and letter. */}
-      <div className="paint-row">
-        <div className="color-well" title="Stroke colour">
-          <input type="color" value={p.color} onChange={(e) => p.setColor(e.target.value)} />
+      {/* One swatch stands in for the whole style panel, which opens above the
+          rail. Keeps the rail the width of the tools rather than the width of
+          every colour anyone might want. */}
+      <button
+        className={"style-trigger" + (stylesOpen ? " active" : "")}
+        title={p.hasSelection ? "Restyle the selection" : "Colour, width and fill"}
+        aria-label="Style"
+        aria-expanded={stylesOpen}
+        disabled={!relevant}
+        onClick={() => setStylesOpen((v) => !v)}
+      >
+        <span className="style-ink" style={{ background: p.size === 0 ? "transparent" : p.color, borderColor: p.color }} />
+        <span className="style-fill" style={{ background: p.fill === "none" ? "transparent" : p.fill }} />
+      </button>
+
+      {stylesOpen && relevant && (
+        <div className="style-pop" role="group" aria-label="Style controls">
+          <div className="style-section">
+            <span className="style-label">Line</span>
+            <div className="swatches">
+              {SWATCHES.map((c) => (
+                <button key={c} className={"swatch" + (p.color.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setColor(c)} title={c} aria-label={`Line ${c}`} />
+              ))}
+              <div className="color-well" title="Custom line colour">
+                <input type="color" value={p.color} onChange={(e) => p.setColor(e.target.value)} aria-label="Custom line colour" />
+              </div>
+              <button
+                className={"swatch no-fill" + (p.size === 0 ? " active" : "")}
+                onClick={() => p.setSize(0)}
+                title="No outline"
+                aria-label="No outline"
+              />
+            </div>
+          </div>
+
+          {/* Fixed nibs, not a free slider. The slider ran down to 0, and 0
+              means "no stroke" — so the pen could be set to invisible in one
+              drag, and drawing looked broken when it was working. */}
+          <div className="style-section">
+            <span className="style-label">Width</span>
+            <div className="size-row">
+              {NIBS.map((n) => (
+                <button
+                  key={n}
+                  className={"nib" + (p.size === n ? " active" : "")}
+                  onClick={() => p.setSize(n)}
+                  title={`${n} pt`}
+                  aria-label={`${n} point stroke`}
+                  aria-pressed={p.size === n}
+                >
+                  <span style={{ width: Math.min(16, 3 + n), height: Math.min(16, 3 + n) }} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="style-section">
+            <span className="style-label">Fill</span>
+            <div className="swatches">
+              <button
+                className={"swatch no-fill" + (p.fill === "none" ? " active" : "")}
+                onClick={() => p.setFill("none")}
+                title="No fill"
+                aria-label="No fill"
+              />
+              {FILLS.map((c) => (
+                <button key={c} className={"swatch" + (p.fill.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setFill(c)} title={c} aria-label={`Fill ${c}`} />
+              ))}
+              <div className={"color-well" + (p.fill === "none" ? " empty" : "")} title="Custom fill colour">
+                <input
+                  type="color"
+                  value={p.fill === "none" ? "#ffffff" : p.fill}
+                  onChange={(e) => p.setFill(e.target.value)}
+                  aria-label="Custom fill colour"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <span className="paint-label">line</span>
-      </div>
-      <div className="swatches">
-        {SWATCHES.map((c) => (
-          <button key={c} className={"swatch" + (p.color.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setColor(c)} title={c} />
-        ))}
-        <button
-          className={"swatch no-fill" + (p.size === 0 ? " active" : "")}
-          onClick={() => p.setSize(0)}
-          title="No outline"
-          aria-label="No outline"
-        />
-      </div>
-
-      {/* Fixed nibs, not a free slider.
-          The slider went down to 0, and 0 means "no stroke" — so it was
-          possible, and easy, to set the pen to invisible and conclude that
-          drawing was broken. These are all real widths; a shape that wants no
-          outline says so with the "no line" swatch above, deliberately. */}
-      <div className="size-row" role="group" aria-label="Stroke width">
-        {NIBS.map((n) => (
-          <button
-            key={n}
-            className={"nib" + (p.size === n ? " active" : "")}
-            onClick={() => p.setSize(n)}
-            title={`${n} pt`}
-            aria-label={`${n} point stroke`}
-            aria-pressed={p.size === n}
-          >
-            <span style={{ width: Math.min(16, 3 + n), height: Math.min(16, 3 + n) }} />
-          </button>
-        ))}
-      </div>
-
-      <div className="tool-divider" />
-
-      {/* Fill: rectangles and ellipses only. "none" leaves them see-through. */}
-      <div className="paint-row">
-        <div className={"color-well" + (p.fill === "none" ? " empty" : "")} title="Fill colour">
-          <input
-            type="color"
-            value={p.fill === "none" ? "#ffffff" : p.fill}
-            onChange={(e) => p.setFill(e.target.value)}
-          />
-        </div>
-        <span className="paint-label">fill</span>
-      </div>
-      <div className="swatches">
-        <button
-          className={"swatch no-fill" + (p.fill === "none" ? " active" : "")}
-          onClick={() => p.setFill("none")}
-          title="No fill"
-        />
-        {FILLS.map((c) => (
-          <button key={c} className={"swatch" + (p.fill.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setFill(c)} title={c} />
-        ))}
-      </div>
+      )}
 
       <div className="tool-divider" />
 
@@ -137,8 +243,25 @@ export default function Toolbar(p: Props) {
       <button className="tool-btn" title="Redo (⌘⇧Z)" disabled={!p.canRedo} onClick={p.onRedo}>
         <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 000 10h1" /></svg>
       </button>
-      <button className="tool-btn" title="Zoom to fit" onClick={p.onZoomFit}>
+      <button className="tool-btn" title="Zoom to fit (⌘1)" aria-label="Zoom to fit" onClick={p.onZoomFit}>
         <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+      </button>
+      {/* Freeze the view. Useful while drawing on a trackpad, where a stray
+          two-finger drag otherwise sends the board somewhere you have to
+          hunt for. */}
+      <button
+        className={"tool-btn" + (p.locked ? " active" : "")}
+        title={p.locked ? "Camera locked — click to unlock" : "Lock the camera (stop pan and zoom)"}
+        aria-label="Lock camera"
+        aria-pressed={p.locked}
+        onClick={p.onToggleLock}
+      >
+        <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7">
+          <rect x="5" y="11" width="14" height="9" rx="2" />
+          {p.locked
+            ? <path d="M8 11V8a4 4 0 018 0v3" />
+            : <path d="M8 11V8a4 4 0 017-2.6" />}
+        </svg>
       </button>
 
       <div className="tool-divider" />

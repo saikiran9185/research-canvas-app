@@ -275,3 +275,40 @@ export function cameraFor(target: Rect, viewW: number, viewH: number, pad = 80):
     y: viewH / 2 - (target.y + target.h / 2) * zoom,
   };
 }
+
+
+// ---- grouping -----------------------------------------------------------
+
+/**
+ * Widen a selection to whole groups.
+ *
+ * Clicking one member of a group has to take the group with it, or "grouped"
+ * means nothing. Applied at selection time rather than at drag time, so the
+ * outline you see is the set that will actually move.
+ */
+export function expandToGroups(items: Item[], ids: Set<string>): Set<string> {
+  const groups = new Set<string>();
+  for (const it of items) if (ids.has(it.id) && it.groupId) groups.add(it.groupId);
+  if (!groups.size) return ids;
+  const out = new Set(ids);
+  for (const it of items) if (it.groupId && groups.has(it.groupId)) out.add(it.id);
+  return out;
+}
+
+// ---- zoom limits --------------------------------------------------------
+
+/**
+ * How far out it is still useful to zoom.
+ *
+ * An infinite canvas will happily let you zoom until the whole board is a
+ * speck and you have no idea where anything is — the "I lost sight of it"
+ * problem. The floor is the zoom at which everything already on the board
+ * fits the viewport, halved, so there is room to pull back for context but
+ * not to lose the work entirely. An empty board keeps the absolute floor.
+ */
+export function minUsefulZoom(content: Rect | null, viewW: number, viewH: number): number {
+  const FLOOR = 0.05;
+  if (!content || content.w <= 0 || content.h <= 0 || viewW <= 0 || viewH <= 0) return FLOOR;
+  const fit = Math.min(viewW / content.w, viewH / content.h);
+  return Math.max(FLOOR, Math.min(1, fit * 0.5));
+}

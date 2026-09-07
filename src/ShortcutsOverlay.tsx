@@ -28,6 +28,8 @@ const SELECTION: Row[] = [
 const ARRANGE: Row[] = [
   { key: "⌘C / ⌘V", label: "Copy and paste" },
   { key: "⌘D", label: "Duplicate in place" },
+  { key: "⌘G", label: "Group the selection" },
+  { key: "⌘⇧G", label: "Ungroup" },
   { key: "⌘]", label: "Bring to front" },
   { key: "⌘[", label: "Send to back" },
   { key: "← ↑ → ↓", label: "Nudge by 1px (⇧ for 10)" },
