@@ -6,6 +6,7 @@
 // memory so browsing back and forth is instant.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Theme } from "./theme";
 import type { CanvasDoc } from "./types";
 import { storage, type DirEntry } from "./storage";
 import { renderBoard } from "./render";
@@ -20,6 +21,15 @@ interface Props {
   onDelete: (e: DirEntry) => void;
   /** Every board in this folder and below, as one PDF. */
   onExportWorkspace: () => void;
+  onNewFolder: () => void;
+  onChooseWorkspace: () => void;
+  onRevealInFinder: () => void;
+  me: { name: string; color: string };
+  onRenameMe: () => void;
+  theme: Theme;
+  onSetTheme: (t: Theme) => void;
+  /** There is only a way back when a board is actually open. */
+  canClose: boolean;
   onClose: () => void;
 }
 
@@ -35,7 +45,8 @@ interface Meta {
 
 export default function Library({
   currentDir, workspace, entries, onOpenCanvas, onEnterFolder, onNewCanvas,
-  onDelete, onExportWorkspace, onClose,
+  onDelete, onExportWorkspace, onNewFolder, onChooseWorkspace, onRevealInFinder,
+  me, onRenameMe, theme, onSetTheme, canClose, onClose,
 }: Props) {
   const [, force] = useState(0);
   const [meta, setMeta] = useState<Map<string, Meta>>(new Map());
@@ -105,8 +116,11 @@ export default function Library({
             disabled={!boards.length && !folders.length}
             title="Every board in this folder and below, as one PDF"
           >Export all as PDF</button>
+          <button className="ghost-btn" onClick={onNewFolder}>+ Folder</button>
           <button className="cta small" onClick={onNewCanvas}>+ New canvas</button>
-          <button className="ghost-btn" onClick={onClose} title="Back to the canvas">✕</button>
+          {canClose && (
+            <button className="ghost-btn" onClick={onClose} title="Back to the board (Esc)">✕</button>
+          )}
         </div>
       </div>
 
@@ -153,6 +167,30 @@ export default function Library({
           </div>
         )}
       </div>
+      {/* Everything the sidebar used to hold, at the foot of the place it
+          belongs to rather than beside the canvas all day. */}
+      <footer className="lib-foot">
+        <div className="lib-foot-left">
+          <button className="ghost-btn" onClick={onChooseWorkspace} title={workspace}>Change folder…</button>
+          <button className="ghost-btn" onClick={onRevealInFinder}>Reveal in Finder</button>
+        </div>
+        <div className="lib-foot-right">
+          <div className="theme-switch" role="group" aria-label="Appearance">
+            {(["system", "light", "dark"] as Theme[]).map((t) => (
+              <button
+                key={t}
+                className={theme === t ? "is-active" : ""}
+                onClick={() => onSetTheme(t)}
+                aria-pressed={theme === t}
+              >{t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}</button>
+            ))}
+          </div>
+          <button className="ghost-btn lib-me" onClick={onRenameMe} title="The name on your notes">
+            <span className="lib-me-dot" style={{ background: me.color }} />
+            {me.name}
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }

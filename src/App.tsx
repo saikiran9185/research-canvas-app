@@ -4,7 +4,6 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
-import Sidebar from "./Sidebar";
 import ShortcutsOverlay from "./ShortcutsOverlay";
 import MediaViewer from "./MediaViewer";
 import CommentsPanel from "./CommentsPanel";
@@ -695,30 +694,40 @@ export default function App() {
     setDoc({ ...doc, camera: { x, y, zoom } }, false);
   }
 
+  // No board open means there is nothing to show but the library.
+  const showLibrary = libraryOpen || !doc;
+
   return (
     <div className="app">
-      <Sidebar
-        workspace={workspace}
-        currentDir={currentDir}
-        entries={entries}
-        currentCanvasPath={canvasPath}
-        onEnterFolder={setCurrentDir}
-        onUp={() => setCurrentDir(currentDir.split("/").slice(0, -1).join("/") || "/")}
-        onOpenCanvas={openCanvas}
-        onNewCanvas={newCanvas}
-        onNewFolder={newFolder}
-        onChooseWorkspace={chooseWorkspace}
-        onDelete={deleteEntry}
-        onRevealInFinder={() => revealItemInDir(currentDir).catch(() => {})}
-        libraryOpen={libraryOpen}
-        onToggleLibrary={() => setLibraryOpen((v) => !v)}
-        me={me}
-        onRenameMe={renameMe}
-        theme={theme}
-        onSetTheme={setThemeState}
-      />
+      {/* Two places, not one place with a panel in it.
+          The library is where you choose what to work on; the board is where
+          you work. A permanent sidebar listing folders while you are drawing
+          costs 250px of canvas to answer a question you are not asking, and it
+          is why opening a board could not put a tab bar anywhere. Figma and
+          FigJam split these for the same reason. */}
+      {showLibrary ? (
+        <Library
+          currentDir={currentDir}
+          workspace={workspace}
+          entries={entries}
+          onOpenCanvas={(p) => { setLibraryOpen(false); openCanvas(p); }}
+          onEnterFolder={setCurrentDir}
+          onNewCanvas={newCanvas}
+          onNewFolder={newFolder}
+          onDelete={deleteEntry}
+          onExportWorkspace={exportWorkspace}
+          onChooseWorkspace={chooseWorkspace}
+          onRevealInFinder={() => revealItemInDir(currentDir).catch(() => {})}
+          me={me}
+          onRenameMe={renameMe}
+          theme={theme}
+          onSetTheme={setThemeState}
+          canClose={!!doc}
+          onClose={() => setLibraryOpen(false)}
+        />
+      ) : null}
 
-      <div className="main">
+      <div className="main" hidden={showLibrary}>
         {doc && (
           <Toolbar
             tool={tool} setTool={setTool}
@@ -737,20 +746,20 @@ export default function App() {
             onToggleNotes={() => setPanelOpen((v) => !v)}
           />
         )}
+
+        {doc && (
+          <header className="board-bar">
+            <button className="board-back" onClick={() => setLibraryOpen(true)} title="All boards (⌘⇧O)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 6l-6 6 6 6" />
+              </svg>
+              <span>Boards</span>
+            </button>
+            <span className="board-name">{doc.name}</span>
+          </header>
+        )}
+
         <div className="canvas-area" ref={areaRef}>
-          {libraryOpen && (
-            <Library
-              currentDir={currentDir}
-              workspace={workspace}
-              entries={entries}
-              onOpenCanvas={openCanvas}
-              onEnterFolder={setCurrentDir}
-              onNewCanvas={newCanvas}
-              onDelete={deleteEntry}
-              onExportWorkspace={exportWorkspace}
-              onClose={() => setLibraryOpen(false)}
-            />
-          )}
           {doc ? (
             <>
               <Canvas

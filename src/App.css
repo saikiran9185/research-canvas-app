@@ -1030,3 +1030,50 @@ body {
 }
 .crash-actions .cta { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 .crash-hint { font-size: var(--text-sm); }
+
+
+/* =========================================================================
+   Two places: the library, and a board
+   ========================================================================= */
+
+/* The library is now a place, not a panel over the canvas — so it fills the
+   window instead of floating in the middle of one. */
+.library {
+  position: static; inset: auto;
+  width: 100%; height: 100%; max-width: none; max-height: none;
+  border-radius: 0; border: none; box-shadow: none;
+  display: flex; flex-direction: column;
+}
+.lib-grid { flex: 1; align-content: start; }
+
+.lib-foot {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-3); padding: var(--s-3) var(--s-5);
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+.lib-foot-left, .lib-foot-right { display: flex; align-items: center; gap: var(--s-2); }
+.lib-me { display: inline-flex; align-items: center; gap: 6px; }
+.lib-me-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+/* The board fills the window. The only chrome above it is the way back and
+   the board's name — everything else the sidebar used to hold now lives in
+   the library, where it is actually being used. */
+.main { flex: 1; min-width: 0; }
+
+.board-bar {
+  position: absolute; top: var(--s-2); left: var(--s-2); z-index: var(--z-canvas-ui);
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 4px 4px 4px 6px; border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--line); backdrop-filter: blur(12px);
+  font-size: var(--text-sm); pointer-events: auto;
+}
+.board-back {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: none; background: none; color: var(--text);
+  padding: 3px 6px; border-radius: var(--r-sm); cursor: pointer; font-size: var(--text-sm);
+}
+.board-back:hover { background: var(--bg); color: var(--accent); }
+.board-back svg { width: 15px; height: 15px; }
+.board-name { color: var(--muted); padding-right: var(--s-2); max-width: 32ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
