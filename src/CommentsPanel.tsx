@@ -125,7 +125,15 @@ export default function CommentsPanel({
                   <div className="cp-item-text">
                     {a.text || (a.quote ? <i>(highlight)</i> : <i>(scribble only)</i>)}
                   </div>
-                  {a.authorId === me.id && (
+                  {/* Resolve and delete are available on every note, not only
+                      your own. This board is a file you own, and the sync model
+                      already handles it: a change is appended to YOUR author
+                      file as a new line, never written into anyone else's, and
+                      the merge takes the latest edit per note. Restricting it
+                      to your own notes meant that when a stored identity id
+                      changed you silently lost control of notes you had written
+                      yourself — which is what happened here. */}
+                  {(
                     <div className="rail-item-actions">
                       <button onClick={(e) => { e.stopPropagation(); onUpdate({ ...a, resolved: !a.resolved, updatedAt: Date.now() }); }}>
                         {a.resolved ? "Reopen" : "Resolve"}

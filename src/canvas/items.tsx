@@ -72,16 +72,38 @@ export function ShapeView({ item, ink, hitBand, selectable, onDown }: { item: Sh
   };
   if (s.shape === "rect") return <rect x={s.x} y={s.y} width={s.w} height={s.h} rx={4} {...common} />;
   if (s.shape === "ellipse") return <ellipse cx={s.x + s.w / 2} cy={s.y + s.h / 2} rx={s.w / 2} ry={s.h / 2} {...common} />;
-  // arrow: item stored raw so direction is preserved
+  // Arrow. Stored raw rather than normalised, so the direction it was drawn in
+  // survives a resize.
+  //
+  // The width is clamped to a visible one. "No outline" is a real choice for a
+  // rectangle — it leaves a filled shape — but an arrow with no line is not an
+  // arrow, and the old code drew the line at width 0 while still filling the
+  // arrowhead, so choosing it left a field of floating triangles with nothing
+  // attached to them.
+  const width = Math.max(1, item.size);
   const x1 = item.x, y1 = item.y, x2 = item.x + item.w, y2 = item.y + item.h;
   const ang = Math.atan2(y2 - y1, x2 - x1);
-  const head = 6 + item.size * 2.2;
-  const a1x = x2 - head * Math.cos(ang - Math.PI / 7), a1y = y2 - head * Math.sin(ang - Math.PI / 7);
-  const a2x = x2 - head * Math.cos(ang + Math.PI / 7), a2y = y2 - head * Math.sin(ang + Math.PI / 7);
+  // The head grows with the stroke and with the arrow's own length, so a short
+  // arrow is not all head and a long one is not tipped with a speck.
+  const length = Math.hypot(x2 - x1, y2 - y1);
+  const head = Math.min(length * 0.4, 5 + width * 3);
+  const spread = Math.PI / 7;
+  const a1x = x2 - head * Math.cos(ang - spread), a1y = y2 - head * Math.sin(ang - spread);
+  const a2x = x2 - head * Math.cos(ang + spread), a2y = y2 - head * Math.sin(ang + spread);
+  // Stop the line just short of the tip: a round cap poking through the head
+  // is the difference between a drawn arrow and two shapes that overlap.
+  const inset = head * 0.55;
+  const lx2 = x2 - inset * Math.cos(ang), ly2 = y2 - inset * Math.sin(ang);
   return (
     <g style={{ pointerEvents: selectable ? "visible" : "none", cursor: "move" }} onPointerDown={onDown}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={painted} strokeWidth={item.size} strokeLinecap="round" />
-      <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={painted} />
+      <line x1={x1} y1={y1} x2={lx2} y2={ly2} stroke={painted} strokeWidth={width} strokeLinecap="round" />
+      <polygon
+        points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`}
+        fill={painted}
+        stroke={painted}
+        strokeWidth={width * 0.6}
+        strokeLinejoin="round"
+      />
       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={hitBand} />
     </g>
   );
