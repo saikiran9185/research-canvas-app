@@ -16,7 +16,7 @@ import { applyFill, applyInk, applyWidth } from "./interaction";
 import { migrateDoc, syncIndices } from "./order";
 import { shortcutsAllowed } from "./editorScope";
 import { align, distribute, snapToGrid, type Align, type Distribute } from "./arrange";
-import { GRID_BASE, type FontRole } from "./constants";
+import { GRID_BASE, MAX_FONT_SIZE, MIN_FONT_SIZE, TEXT_LEVELS, type FontRole } from "./constants";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -47,6 +47,7 @@ export default function App() {
   const [size, setSize] = useState(3);
   const [fontSize, setFontSize] = useState(20);
   const [font, setFont] = useState<FontRole>("sans");
+  const [level, setLevel] = useState<number>(0);
   const [fill, setFill] = useState("none");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -276,9 +277,22 @@ export default function App() {
     restyle((i) => applyWidth(i, n));
   }, [restyle]);
 
+  /** A typed size is a deliberate one-off, so it clears the heading level:
+   *  claiming something is still an H2 at a size H2 does not mean would make
+   *  the level a lie. */
   const chooseFontSize = useCallback((n: number) => {
-    setFontSize(n);
-    restyle((i) => (i.type === "text" ? { ...i, fontSize: n } : i));
+    const size = Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, n || 0)));
+    setFontSize(size);
+    setLevel(0);
+    restyle((i) => (i.type === "text" ? { ...i, fontSize: size, level: undefined } : i));
+  }, [restyle]);
+
+  const chooseLevel = useCallback((lv: number) => {
+    const entry = TEXT_LEVELS.find((l) => l.level === lv);
+    if (!entry) return;
+    setLevel(lv);
+    setFontSize(entry.size);
+    restyle((i) => (i.type === "text" ? { ...i, fontSize: entry.size, level: lv || undefined } : i));
   }, [restyle]);
 
   /** Tidying commands. They act on the selection and land one undo step. */
@@ -833,6 +847,7 @@ export default function App() {
             fill={fill} setFill={chooseFill}
             fontSize={fontSize} setFontSize={chooseFontSize}
             font={font} setFont={chooseFont}
+            level={level} setLevel={chooseLevel}
             textSelected={textSelected}
             selectionCount={selectedIds.size}
             onAlign={doAlign} onDistribute={doDistribute} onSnapToGrid={doSnapToGrid}
@@ -868,7 +883,7 @@ export default function App() {
               <Canvas
                 doc={doc} setDoc={setDoc} pushHistory={pushHistory} dark={dark} locked={locked}
                 tool={tool} setTool={setTool}
-                color={color} size={size} fill={fill} fontSize={fontSize} font={font}
+                color={color} size={size} fill={fill} fontSize={fontSize} font={font} level={level}
                 selectedIds={selectedIds} setSelectedIds={setSelectedIds}
                 annotationCounts={countsByItem}
                 boardNotes={annotations.filter((a) => a.anchor.itemId === "board" && !a.resolved)}

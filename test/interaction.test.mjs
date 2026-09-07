@@ -337,4 +337,29 @@ check("a viewport not measured yet does not discard the position", () => {
   assert.deepEqual(I.reachablePosition({ x: 5, y: 5 }, rail, { w: 0, h: 0 }), { x: 5, y: 5 });
 });
 
+// ---- heading levels ------------------------------------------------------
+
+check("every heading level has a distinct size, largest first", () => {
+  const consts = readFileSync("src/constants.ts", "utf8");
+  const levels = [...consts.matchAll(/\{ level: (\d), size: (\d+), label: "([^"]+)" \}/g)]
+    .map(([, l, sz, label]) => ({ level: +l, size: +sz, label }));
+  assert.equal(levels.length, 7, "H1-H6 plus body");
+  const headings = levels.filter((l) => l.level > 0);
+  for (let i = 1; i < headings.length; i++) {
+    assert.ok(headings[i].size < headings[i - 1].size,
+      `${headings[i].label} must be smaller than ${headings[i - 1].label}`);
+  }
+  assert.ok(levels.some((l) => l.level === 0 && l.label === "Body"));
+});
+
+check("the level steps stay apart at board sizes", () => {
+  // Steps closer than about 1.15x stop reading as different levels at all.
+  const consts = readFileSync("src/constants.ts", "utf8");
+  const sizes = [...consts.matchAll(/\{ level: [1-6], size: (\d+),/g)].map((m) => +m[1]);
+  for (let i = 1; i < sizes.length; i++) {
+    assert.ok(sizes[i - 1] / sizes[i] >= 1.15,
+      `${sizes[i - 1]} and ${sizes[i]} are too close to read as different levels`);
+  }
+});
+
 console.log(`\n${passed} interaction checks passed`);

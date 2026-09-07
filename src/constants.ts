@@ -156,10 +156,36 @@ export const NIB = {
 export const NIB_SIZES = [1, 2, 4, 8, 16] as const;
 
 
-/** Text sizes offered by the toolbar, in world units. A scale, not a slider:
- *  the point of a board is that sizes group things, and free values make
- *  every label a slightly different size than every other one. */
-export const TEXT_SIZES = [14, 20, 28, 40, 64] as const;
+/**
+ * Heading levels, and the size each one means.
+ *
+ * A level is worth storing alongside the size because it carries INTENT that a
+ * number does not: two things set at H2 are the same kind of thing, and will
+ * still be after someone decides H2 should be bigger. It is also what makes a
+ * board exportable as structured text later — "36px" is not a heading, `##` is.
+ *
+ * A roughly 1.3 ratio, which holds its steps apart at the sizes a board is
+ * actually read at rather than at body-copy sizes.
+ */
+export const TEXT_LEVELS = [
+  { level: 1, size: 64, label: "H1" },
+  { level: 2, size: 48, label: "H2" },
+  { level: 3, size: 36, label: "H3" },
+  { level: 4, size: 28, label: "H4" },
+  { level: 5, size: 22, label: "H5" },
+  { level: 6, size: 18, label: "H6" },
+  { level: 0, size: 16, label: "Body" },
+] as const;
+
+export type TextLevel = (typeof TEXT_LEVELS)[number]["level"];
+
+/** Any size is allowed; these are the ones a click away. */
+export const TEXT_SIZES = TEXT_LEVELS.map((l) => l.size);
+
+/** Bounds for a typed-in size. Below this text is unreadable at any zoom;
+ *  above it, a single word is a whole board. */
+export const MIN_FONT_SIZE = 6;
+export const MAX_FONT_SIZE = 400;
 
 // ---- level of detail ----------------------------------------------------
 

@@ -80,6 +80,13 @@ export interface TextItem extends Base {
   italic?: boolean;
   /** A font ROLE, not a font name. See FONTS in constants.ts for why. */
   font?: "sans" | "serif" | "mono";
+  /**
+   * Heading level, 1-6, or 0 for body. Carried alongside fontSize rather than
+   * instead of it: the size is what gets drawn, the level is what was MEANT,
+   * and only the level survives a change of mind about how big H2 should be.
+   * Absent on text whose size was typed in directly.
+   */
+  level?: number;
   x: number;
   y: number;
   w: number;

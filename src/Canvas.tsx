@@ -42,6 +42,8 @@ interface Props {
   fontSize: number;
   /** Font role for new text. */
   font: FontRole;
+  /** Heading level for new text, 0 for body. */
+  level: number;
   /** Selection is a set: a board is not usable if you can only ever hold one
    *  thing at a time. */
   selectedIds: Set<string>;
@@ -79,7 +81,7 @@ type Drag =
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, fontSize, font, selectedIds, setSelectedIds,
+  doc, setDoc, pushHistory, dark, locked, tool, setTool, color, size, fill, fontSize, font, level, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
   onPasteFiles, onBoardComment, onEditBoardComment, onOpenAnnotation,
 }: Props) {
@@ -320,7 +322,7 @@ export default function Canvas({
             const w = what.text.length > 900 ? 720 : what.text.length > 220 ? 520 : 360;
             return {
               id: uid(), type: "text", x: at.x - w / 2, y: at.y - 12, w,
-              text: what.text, color: inkToStore, fontSize, font,
+              text: what.text, color: inkToStore, fontSize, font, ...(level ? { level } : {}),
             } as Item;
           })();
       setDoc({ ...d, items: [...d.items, made] });
@@ -386,7 +388,7 @@ export default function Canvas({
       }
       case "text": {
         const id = uid();
-        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize, font }] });
+        setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize, font, ...(level ? { level } : {}) }] });
         setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }

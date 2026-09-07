@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import type { Tool } from "./types";
 import { reachablePosition } from "./interaction";
 import type { Align, Distribute } from "./arrange";
-import { FONT_ROLES, type FontRole } from "./constants";
+import { FONT_ROLES, MAX_FONT_SIZE, MIN_FONT_SIZE, TEXT_LEVELS, type FontRole } from "./constants";
 
 interface Props {
   tool: Tool;
@@ -18,6 +18,8 @@ interface Props {
   setFontSize: (n: number) => void;
   font: FontRole;
   setFont: (f: FontRole) => void;
+  level: number;
+  setLevel: (l: number) => void;
   /** Text is selected, so the text controls can act on something. */
   textSelected: boolean;
   /** How many items are selected — align and distribute need two and three. */
@@ -58,7 +60,6 @@ const SWATCHES = ["#111827", "#e7e9ec", "#ef4444", "#f59e0b", "#10b981", "#3b82f
 // Softer tints for fills, so a filled shape sits behind its own outline
 // instead of shouting over the media underneath it.
 const NIBS = [1, 2, 4, 8, 16];
-const TEXT_SIZES = [14, 20, 28, 40, 64];
 
 const FILLS = ["#fee2e2", "#fef3c7", "#d1fae5", "#dbeafe", "#ede9fe", "#fce7f3", "#e5e7eb"];
 
@@ -204,15 +205,30 @@ export default function Toolbar(p: Props) {
                 aria-pressed={p.font === f}
               >Aa</button>
             ))}
+            {/* Level first: it is what you mean. Size second, for the times
+                you mean something specific. */}
             <select
-              className="font-size-select"
+              className="level-select"
+              value={p.level}
+              onChange={(e) => p.setLevel(Number(e.target.value))}
+              title="Heading level"
+              aria-label="Heading level"
+            >
+              {TEXT_LEVELS.map((l) => (
+                <option key={l.level} value={l.level}>{l.label}</option>
+              ))}
+            </select>
+            <input
+              className="font-size-input"
+              type="number"
+              min={MIN_FONT_SIZE}
+              max={MAX_FONT_SIZE}
+              step={1}
               value={p.fontSize}
               onChange={(e) => p.setFontSize(Number(e.target.value))}
-              title="Text size"
+              title="Text size in points — any value, not only the presets"
               aria-label="Text size"
-            >
-              {TEXT_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            />
             <button className="arrange-btn" title="Bold" onClick={() => p.onToggleTextStyle("bold")}><b>B</b></button>
             <button className="arrange-btn" title="Italic" onClick={() => p.onToggleTextStyle("italic")}><i>I</i></button>
           </div>
@@ -280,25 +296,6 @@ export default function Toolbar(p: Props) {
             </div>
           </div>
 
-          {/* Text size, shown when it can do something: the text tool is armed,
-              or text is selected. A scale rather than a slider, so labels on a
-              board group by size instead of each being slightly its own. */}
-          {p.tool === "text" || p.hasSelection ? (
-            <div className="style-section">
-              <span className="style-label">Text size</span>
-              <div className="size-row">
-                {TEXT_SIZES.map((n) => (
-                  <button
-                    key={n}
-                    className={"text-size" + (p.fontSize === n ? " active" : "")}
-                    onClick={() => p.setFontSize(n)}
-                    title={`${n}px`}
-                    aria-pressed={p.fontSize === n}
-                  >A</button>
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           {/* Tidying. Snapping helps while you drag; it cannot line up six
               cards you already placed. Shown only when there is something to
@@ -334,15 +331,6 @@ export default function Toolbar(p: Props) {
             </div>
           )}
 
-          {p.tool === "text" || p.hasSelection ? (
-            <div className="style-section">
-              <span className="style-label">Text style</span>
-              <div className="arrange-row">
-                <button className="arrange-btn" title="Bold" onClick={() => p.onToggleTextStyle("bold")}><b>B</b></button>
-                <button className="arrange-btn" title="Italic" onClick={() => p.onToggleTextStyle("italic")}><i>I</i></button>
-              </div>
-            </div>
-          ) : null}
 
           <div className="style-section">
             <span className="style-label">Fill</span>

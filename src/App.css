@@ -1194,8 +1194,14 @@ body {
 .font-serif { font-family: ui-serif, Georgia, serif; }
 .font-mono { font-family: ui-monospace, Menlo, monospace; font-size: var(--text-sm); }
 
-.font-size-select {
-  height: 30px; padding: 0 4px; border-radius: var(--r-sm);
+.level-select, .font-size-input {
+  height: 30px; border-radius: var(--r-sm);
   border: 1px solid var(--line); background: var(--panel); color: var(--text);
-  font-size: var(--text-sm); cursor: pointer;
+  font-size: var(--text-sm);
 }
+.level-select { padding: 0 2px 0 5px; cursor: pointer; }
+/* Wide enough for three digits; the spinners are noise at this size and the
+   field is typed into far more often than it is stepped. */
+.font-size-input { width: 46px; padding: 0 6px; text-align: center; }
+.font-size-input::-webkit-outer-spin-button,
+.font-size-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
