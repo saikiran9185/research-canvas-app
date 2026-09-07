@@ -19,6 +19,44 @@
   color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  /* --- scales -------------------------------------------------------------
+     Measured in docs/ui-audit.md: the stylesheet had grown 17 font sizes,
+     12 radii and 14 padding values, chosen one at a time and never reconciled.
+     These are the steps everything should resolve to. */
+
+  --text-xs: 11px;    /* metadata, timecodes, counts */
+  --text-sm: 12px;    /* labels, secondary UI */
+  --text-md: 13px;    /* the body of a panel */
+  --text-lg: 15px;    /* panel titles */
+  --text-xl: 19px;    /* board title, empty-state body */
+  --text-2xl: 27px;   /* welcome heading */
+
+  --r-sm: 4px;        /* swatches, chips */
+  --r-md: 8px;        /* buttons, cards, inputs */
+  --r-lg: 12px;       /* panels, popovers */
+  --r-xl: 16px;       /* the tool rail, modal sheets */
+
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px;
+  --s-4: 16px; --s-5: 20px; --s-6: 24px;
+
+  /* Depth, named rather than numbered: a bare 80 tells a future contributor
+     nothing about whether their new panel belongs above or below it. */
+  --z-canvas-ui: 10;  /* selection chrome, alignment guides */
+  --z-rail: 20;       /* the tool rail */
+  --z-panel: 30;      /* side panels */
+  --z-popover: 40;    /* style panel, menus */
+  --z-modal: 50;      /* dialogs, the shortcuts sheet */
+  --z-toast: 60;      /* transient messages */
+
+  /* One duration, one curve. The stylesheet had 120ms and .12s — the same
+     value written two ways, which is how a third gets added by accident. */
+  --motion-fast: 120ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Four near-identical blacks were in use for scrims and shadows. */
+  --scrim: var(--scrim);
+  --on-accent: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,8 +72,8 @@
     --media-bg: #14161a;
     --stage-bg: #0d0f12;
     --edit-bg: rgba(255, 255, 255, 0.07);
-    --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.45);
-    --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.55);
+    --shadow-sm: 0 4px 14px var(--scrim);
+    --shadow-md: 0 8px 30px var(--scrim);
     color-scheme: dark;
   }
 }
@@ -52,8 +90,8 @@
   --media-bg: #14161a;
   --stage-bg: #0d0f12;
   --edit-bg: rgba(255, 255, 255, 0.07);
-  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.45);
-  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 4px 14px var(--scrim);
+  --shadow-md: 0 8px 30px var(--scrim);
   color-scheme: dark;
 }
 
@@ -210,7 +248,7 @@ body {
 /* Alignment guides. Drawn as a hairline that ignores the camera scale, so it
    stays one pixel wide however far you are zoomed in. */
 .snap-guide {
-  position: absolute; pointer-events: none; z-index: 3;
+  position: absolute; pointer-events: none; z-index: var(--z-canvas-ui);
   outline: 1px solid #f43f5e;
 }
 
@@ -226,7 +264,7 @@ body {
      time you toggled a panel — which read as the toolbar running away from
      the cursor. */
   position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
-  z-index: 10; background: var(--panel); border: 1px solid var(--line);
+  z-index: var(--z-rail); background: var(--panel); border: 1px solid var(--line);
   border-radius: 14px; padding: 6px 8px;
   display: flex; flex-direction: row; align-items: center; gap: 2px;
   box-shadow: var(--shadow-md);
@@ -317,7 +355,7 @@ body {
 
 /* ---------------- Status + welcome ---------------- */
 .statusbar {
-  position: absolute; right: 14px; bottom: 12px; z-index: 5;
+  position: absolute; right: 14px; bottom: 12px; z-index: var(--z-canvas-ui);
   display: flex; gap: 14px; align-items: center;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 6px 12px; font-size: 12px; color: var(--muted); box-shadow: var(--shadow-sm);
@@ -381,7 +419,7 @@ body {
 .media { position: relative; }
 .media-open, .media-badge {
   position: absolute; border: none; cursor: pointer; font-weight: 600;
-  opacity: 0; transition: opacity .12s;
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease);
 }
 .media-open {
   right: 6px; bottom: 6px; font-size: 11px; padding: 4px 9px; border-radius: 7px;
@@ -481,14 +519,14 @@ body {
    Focus viewer
    ========================================================================= */
 .viewer-backdrop {
-  position: fixed; inset: 0; z-index: 50;
+  position: fixed; inset: 0; z-index: var(--z-modal);
   background: rgba(15, 18, 24, .72); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; padding: 26px;
 }
 .viewer {
   width: 100%; height: 100%; max-width: 1500px;
   background: var(--panel); border-radius: 14px; overflow: hidden;
-  display: flex; flex-direction: column; box-shadow: 0 24px 70px rgba(0,0,0,.4);
+  display: flex; flex-direction: column; box-shadow: 0 24px 70px var(--scrim);
 }
 .viewer-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -558,7 +596,7 @@ body {
 .anno-marker.selected { outline: 2px solid #fff; outline-offset: 2px; }
 
 .composer {
-  position: absolute; z-index: 5; width: 250px; transform: translate(10px, 0);
+  position: absolute; z-index: var(--z-canvas-ui); width: 250px; transform: translate(10px, 0);
   background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
   padding: 9px; box-shadow: 0 12px 34px rgba(0,0,0,.32); line-height: normal;
 }
@@ -629,9 +667,9 @@ body {
 
 /* ---- toast ---- */
 .toast {
-  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 80;
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: var(--z-popover);
   background: rgba(17, 24, 39, .92); color: #fff; font-size: 12.5px;
-  padding: 9px 16px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  padding: 9px 16px; border-radius: 20px; box-shadow: 0 8px 24px var(--scrim);
 }
 
 
@@ -653,14 +691,14 @@ body {
 
 /* ---- export progress ---- */
 .busy-overlay {
-  position: fixed; inset: 0; z-index: 90; display: flex;
+  position: fixed; inset: 0; z-index: var(--z-modal); display: flex;
   align-items: center; justify-content: center;
   background: rgba(10, 12, 16, .55); backdrop-filter: blur(2px);
 }
 .busy-card {
   background: var(--panel); border-radius: 14px; padding: 26px 34px;
   display: flex; flex-direction: column; align-items: center; gap: 10px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.4); font-size: 13.5px; text-align: center;
+  box-shadow: 0 20px 60px var(--scrim); font-size: 13.5px; text-align: center;
   max-width: 340px;
 }
 .busy-card small { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
@@ -677,14 +715,14 @@ body {
 
 /* ---- in-app dialogs (the webview has no window.prompt) ---- */
 .dialog-backdrop {
-  position: fixed; inset: 0; z-index: 100; display: flex;
+  position: fixed; inset: 0; z-index: var(--z-modal); display: flex;
   align-items: center; justify-content: center;
   background: rgba(10, 12, 16, .5); backdrop-filter: blur(2px);
 }
 .dialog {
   width: min(400px, calc(100vw - 48px));
   background: var(--panel); border-radius: 14px; padding: 20px;
-  box-shadow: 0 24px 60px rgba(0,0,0,.4);
+  box-shadow: 0 24px 60px var(--scrim);
 }
 .dialog h3 { margin: 0 0 6px; font-size: 15px; }
 .dialog p { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
@@ -714,7 +752,7 @@ body {
    Library — every board in a folder, as a grid
    ========================================================================= */
 .library {
-  position: absolute; inset: 0; z-index: 20; background: var(--bg);
+  position: absolute; inset: 0; z-index: var(--z-rail); background: var(--bg);
   display: flex; flex-direction: column;
 }
 .lib-head {
@@ -737,7 +775,7 @@ body {
   width: 100%; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); cursor: pointer;
   display: flex; align-items: center; justify-content: center; padding: 0;
-  transition: border-color .12s, transform .12s;
+  transition: border-color var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease);
 }
 .lib-card:hover .lib-thumb { border-color: var(--accent); transform: translateY(-2px); }
 .lib-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -765,7 +803,7 @@ body {
   /* Fixed width: text must not reflow, or a stored highlight would drift. */
   width: 820px; max-width: 100%; background: #fff; color: #1f2937;
   padding: 64px 72px; line-height: 1.65; font-size: 15px; text-align: left;
-  box-shadow: 0 6px 30px rgba(0,0,0,.3);
+  box-shadow: 0 6px 30px var(--scrim);
 }
 .doc-page h1, .doc-page h2, .doc-page h3 { line-height: 1.3; margin: 1.4em 0 .5em; }
 .doc-page h1 { font-size: 27px; }
@@ -881,7 +919,7 @@ body {
 /* ---------------- Shortcuts overlay ---------------- */
 .shortcuts-backdrop {
   position: fixed; inset: 0; background: rgba(17, 24, 39, 0.35);
-  display: flex; align-items: center; justify-content: center; z-index: 50;
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-modal);
 }
 .shortcuts-panel {
   outline: none;
@@ -933,7 +971,34 @@ body {
 .block.is-locked::after {
   content: "🔒";
   position: absolute; top: 2px; right: 4px;
-  font-size: 11px; opacity: 0; transition: opacity 120ms;
+  font-size: 11px; opacity: 0; transition: opacity var(--motion-fast) var(--ease);
   pointer-events: none;
 }
 .block.is-locked:hover::after { opacity: 0.55; }
+
+
+/* =========================================================================
+   Accessibility
+   ========================================================================= */
+
+/* There was ONE focus rule in this stylesheet, across roughly thirty buttons —
+   so a keyboard user could not see where they were. :focus-visible shows the
+   ring for keyboard navigation without putting it on every mouse click. */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+/* The canvas host takes focus programmatically; a ring around the whole board
+   is noise, and the selection chrome already shows what is selected. */
+.canvas-host:focus-visible { outline: none; }
+
+/* Someone who has asked the system for less motion should get less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

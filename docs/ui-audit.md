@@ -104,8 +104,12 @@ Motion, one duration and one curve, plus a reduced-motion escape:
 
 ## Order of work
 
-1. **Focus rings and reduced motion.** Accessibility, and an hour's work.
-2. **Tokens for colour, depth and motion.** Mechanical, no visual change.
+1. **Focus rings and reduced motion.** *Done.* `:focus-visible` shows a ring
+   for keyboard navigation without putting one on every mouse click, and a
+   `prefers-reduced-motion` block honours the system setting.
+2. **Tokens for colour, depth and motion.** *Done.* Depth is named rather than
+   numbered, the four near-identical scrims are one token, and the three
+   spellings of 120ms are one. No visual change.
 3. **Type and radius onto the scales.** Small visual change — half-steps snap
    to whole ones — and the point at which the interface starts looking
    deliberate.
