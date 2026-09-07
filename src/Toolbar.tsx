@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import type { Tool } from "./types";
+import { reachablePosition } from "./interaction";
 
 interface Props {
   tool: Tool;
@@ -70,6 +71,26 @@ export default function Toolbar(p: Props) {
   // they are just a wall of swatches over the board.
   const relevant = p.hasSelection || ["pen", "rect", "ellipse", "arrow", "text", "note"].includes(p.tool);
   useEffect(() => { if (!relevant) setStylesOpen(false); }, [relevant]);
+
+  // A remembered position can outlive the window it was stored for — or the
+  // positioning scheme, which is exactly what stranded this rail off-screen.
+  // Check it against the viewport we are actually in, and fall back to the
+  // default place rather than leaving the grip somewhere unreachable.
+  useEffect(() => {
+    const settle = () => {
+      const el = railRef.current;
+      if (!el) return;
+      setPos((v) => {
+        const ok = reachablePosition(v, { w: el.offsetWidth, h: el.offsetHeight },
+                                     { w: window.innerWidth, h: window.innerHeight });
+        if (!ok) { try { localStorage.removeItem(POS_KEY); } catch { /* non-fatal */ } }
+        return ok;
+      });
+    };
+    settle();
+    window.addEventListener("resize", settle);
+    return () => window.removeEventListener("resize", settle);
+  }, []);
 
   useEffect(() => {
     const move = (e: PointerEvent) => {

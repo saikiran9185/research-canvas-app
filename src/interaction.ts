@@ -164,3 +164,45 @@ export function shouldTakeUndoPoint(
 /** Screen distance a press has travelled, for telling a click from a drag. */
 export const travelled = (a: Point, b: Point, zoom: number): number =>
   Math.hypot(b.x - a.x, b.y - a.y) * zoom;
+
+
+// ---- floating panels ----------------------------------------------------
+
+export interface Box { x: number; y: number; w: number; h: number; }
+
+/**
+ * Keep a floating panel reachable.
+ *
+ * A remembered position outlives the thing that produced it: the window gets
+ * smaller, a monitor is unplugged, or — as happened here — the positioning
+ * scheme changes underneath it and the old coordinates now mean somewhere
+ * else. The panel then sits off-screen, and because its drag handle went with
+ * it there is no way to bring it back. So a restored position is checked
+ * against the viewport it is about to be used in, and a position that would
+ * put the panel out of reach is refused rather than honoured.
+ *
+ * Returns null when the panel should fall back to its default place.
+ */
+export function reachablePosition(
+  pos: { x: number; y: number } | null,
+  panel: { w: number; h: number },
+  viewport: { w: number; h: number },
+  margin = 8,
+): { x: number; y: number } | null {
+  if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
+  if (viewport.w <= 0 || viewport.h <= 0) return pos;
+
+  const maxX = viewport.w - panel.w - margin;
+  const maxY = viewport.h - panel.h - margin;
+  // Too big to fit at all: the default placement handles it better.
+  if (maxX < margin || maxY < margin) return null;
+
+  const clamped = {
+    x: Math.max(margin, Math.min(maxX, pos.x)),
+    y: Math.max(margin, Math.min(maxY, pos.y)),
+  };
+  // Wildly out of range means the stored value belongs to a different world;
+  // snapping it to an edge would be arbitrary, so start over instead.
+  const drift = Math.hypot(clamped.x - pos.x, clamped.y - pos.y);
+  return drift > Math.max(viewport.w, viewport.h) / 2 ? null : clamped;
+}

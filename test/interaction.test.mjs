@@ -236,4 +236,44 @@ check("shorthand hex is understood, and nonsense is left alone", () => {
   assert.ok(T.contrastsWithPaper("rebeccapurple", true), "named colours are assumed fine");
 });
 
+// ---- a floating panel that cannot be lost -------------------------------
+
+const rail = { w: 400, h: 46 };
+const screen = { w: 1440, h: 900 };
+
+check("a sensible position is kept as it is", () => {
+  assert.deepEqual(I.reachablePosition({ x: 300, y: 800 }, rail, screen), { x: 300, y: 800 });
+});
+
+check("no stored position means the default place", () => {
+  assert.equal(I.reachablePosition(null, rail, screen), null);
+});
+
+check("a slightly off-screen position is nudged back into view", () => {
+  const out = I.reachablePosition({ x: 1430, y: 880 }, rail, screen);
+  assert.ok(out.x + rail.w <= screen.w, "must be fully on screen");
+  assert.ok(out.y + rail.h <= screen.h);
+});
+
+check("a position from another world is refused, not snapped", () => {
+  // This is the actual bug: the positioning scheme changed underneath a stored
+  // coordinate, the rail went off-screen, and its drag grip went with it — so
+  // there was no way to bring it back.
+  assert.equal(I.reachablePosition({ x: 9000, y: 9000 }, rail, screen), null);
+  assert.equal(I.reachablePosition({ x: -4000, y: 60 }, rail, screen), null);
+});
+
+check("garbage in storage falls back rather than throwing", () => {
+  assert.equal(I.reachablePosition({ x: NaN, y: 10 }, rail, screen), null);
+  assert.equal(I.reachablePosition({ x: 10, y: Infinity }, rail, screen), null);
+});
+
+check("a panel too big for the window uses the default place", () => {
+  assert.equal(I.reachablePosition({ x: 10, y: 10 }, { w: 2000, h: 40 }, screen), null);
+});
+
+check("a viewport not measured yet does not discard the position", () => {
+  assert.deepEqual(I.reachablePosition({ x: 5, y: 5 }, rail, { w: 0, h: 0 }), { x: 5, y: 5 });
+});
+
 console.log(`\n${passed} interaction checks passed`);
