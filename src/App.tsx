@@ -31,6 +31,7 @@ const SYNC_POLL_MS = 2500;
 
 export default function App() {
   const [workspace, setWorkspace] = useState<string>("");
+  const workspaceRef = useLatest(workspace);
   const [currentDir, setCurrentDir] = useState<string>("");
   const [entries, setEntries] = useState<DirEntry[]>([]);
 
@@ -361,7 +362,15 @@ export default function App() {
    */
   const addPastedFiles = useCallback(async (files: File[], at: { x: number; y: number }) => {
     if (!docRef.current) { say("Open or create a canvas first."); return; }
-    if (!workspace) { say("Still starting up — try that again in a moment."); return; }
+    // Resolve the workspace rather than refuse. This handler is bound to a
+    // long-lived window listener, so reading the state value directly could
+    // see the empty string it started as — which is why pasting reported that
+    // the app was still starting up long after it had.
+    let ws = workspaceRef.current;
+    if (!ws) {
+      try { ws = await storage.defaultWorkspace(); setWorkspace(ws); } catch { /* handled below */ }
+    }
+    if (!ws) { say("Could not find your workspace folder."); return; }
 
     const made: Item[] = [];
     let offset = 0;
@@ -370,7 +379,7 @@ export default function App() {
       if (!kind) continue;
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const dest = `${workspace}/.assets/${Date.now()}-${file.name}`;
+        const dest = `${ws}/.assets/${Date.now()}-${file.name}`;
         await storage.writeBytes(dest, bytes);
         const { w, h } = defaultSize(kind);
         made.push({
@@ -387,7 +396,7 @@ export default function App() {
       setDoc({ ...docRef.current, items: [...docRef.current.items, ...made] });
       say(`Pasted ${made.length} file${made.length === 1 ? "" : "s"}`);
     }
-  }, [workspace, setDoc, say]);
+  }, [workspaceRef, setDoc, say]);
 
   const addFiles = useCallback(async (files: string[], at?: { x: number; y: number }) => {
     if (!docRef.current) { say("Open or create a canvas first."); return; }

@@ -114,6 +114,9 @@ export default function Canvas({
   /** Last pointer position in screen space, so a paste lands under the cursor
    *  rather than always in the middle of the view. */
   const pointer = useRef<Point | null>(null);
+  /** Did the last gesture actually move? A link must not open when you were
+   *  dragging the card it sits on. */
+  const draggedRef = useRef(false);
   const clipboard = useRef<Item[]>([]);
   /** Last click, for detecting a double-click ourselves. */
   const lastClick = useRef<{ id: string; at: number }>({ id: "", at: 0 });
@@ -243,6 +246,22 @@ export default function Canvas({
     docRef, selRef, hostRef, measured, setDoc, setSelectedIds,
     setEditingId, setSpaceDown, beginEditing, clipboard,
   });
+
+  // Track the pointer on the window, not only over the board. Coming back from
+  // a browser to paste means the last move happened somewhere else entirely,
+  // and a paste that lands in the middle of the screen instead of under the
+  // cursor is the difference between placing something and then having to go
+  // and find it.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const r = hostRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      if (x >= 0 && y >= 0 && x <= r.width && y <= r.height) pointer.current = { x, y };
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, []);
 
   // --- paste ---------------------------------------------------------------
   // Research arrives by clipboard as much as by drag: you find something in a
@@ -408,6 +427,7 @@ export default function Canvas({
       if (!d.moved && travelled(d.origin, p, docRef.current.camera.zoom) < DRAG_SLOP_PX) return;
       if (!d.moved) pushHistory();
       d.moved = true;
+      draggedRef.current = true;
 
       const sel = selRef.current;
       const box = union(d.snapshot.filter((i) => sel.has(i.id)), measured);
@@ -474,6 +494,7 @@ export default function Canvas({
   function itemPointerDown(e: React.PointerEvent, item: Item) {
     if (tool !== "select" || spaceDown || item.locked) return;
     e.stopPropagation();
+    draggedRef.current = false;
 
     // Detect the double-click ourselves rather than relying on the dblclick
     // event: capturing the pointer on the host (which we must do, so a drag
@@ -660,12 +681,17 @@ export default function Canvas({
                   className={"link-card" + (it.media === "video" ? " is-video" : "")}
                   href={it.url}
                   title={it.url}
-                  onPointerDown={(e) => e.stopPropagation()}
+                  // Deliberately NOT stopping the pointer here. The card fills
+                  // its whole item, so swallowing pointerdown left nothing to
+                  // drag it by and the card was stuck wherever it landed.
+                  // The press falls through to the board, and the link opens
+                  // only on a click that did not turn into a drag.
                   onClick={(e) => {
+                    e.preventDefault();
+                    if (draggedRef.current) return;
                     // Never navigate the app window itself — a board is not a
                     // browser, and a link that replaced it would take the
                     // running app with it. Hand it to the real browser.
-                    e.preventDefault();
                     openUrl(it.url).catch(() => {});
                   }}
                 >
