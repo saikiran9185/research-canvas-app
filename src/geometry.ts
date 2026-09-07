@@ -9,6 +9,11 @@
 //   screen → world:  (s - cam) / zoom
 
 import type { Camera, Item } from "./types";
+import {
+  FIT_PADDING_PX, GRID_BASE, GRID_MAJOR_EVERY, GRID_MAX_SCREEN_PX,
+  GRID_MIN_SCREEN_PX, MAX_ZOOM, MIN_ITEM_SIZE, MIN_TEXT_WIDTH, MIN_ZOOM,
+  ZOOM_OUT_HEADROOM,
+} from "./constants";
 
 export interface Point { x: number; y: number; }
 export interface Rect { x: number; y: number; w: number; h: number; }
@@ -161,9 +166,9 @@ export function fitTo(item: Item, from: Rect, to: Rect): Item {
   }
   if (item.type === "text") {
     // Text reflows rather than stretching, so only its column width changes.
-    return { ...item, x: mapX(item.x), y: mapY(item.y), w: Math.max(40, item.w * sx) };
+    return { ...item, x: mapX(item.x), y: mapY(item.y), w: Math.max(MIN_TEXT_WIDTH, item.w * sx) };
   }
-  return { ...item, x: mapX(item.x), y: mapY(item.y), w: Math.max(20, item.w * sx), h: Math.max(20, item.h * sy) };
+  return { ...item, x: mapX(item.x), y: mapY(item.y), w: Math.max(MIN_ITEM_SIZE, item.w * sx), h: Math.max(MIN_ITEM_SIZE, item.h * sy) };
 }
 
 // ---- hit testing --------------------------------------------------------
@@ -264,11 +269,14 @@ export function snapMove(moving: Rect, others: Rect[], tolerance: number): Snap 
 }
 
 /** The camera that fits `target` into a viewport, with breathing room. */
-export function cameraFor(target: Rect, viewW: number, viewH: number, pad = 80): Camera {
+export function cameraFor(target: Rect, viewW: number, viewH: number, pad = FIT_PADDING_PX): Camera {
   if (target.w <= 0 || target.h <= 0) {
     return { x: viewW / 2 - target.x, y: viewH / 2 - target.y, zoom: 1 };
   }
-  const zoom = Math.min(4, Math.max(0.05, Math.min((viewW - pad * 2) / target.w, (viewH - pad * 2) / target.h)));
+  // One zoom range, shared with the wheel handler. These clamps disagreed —
+  // 4 here against 8 there — so zoom-to-fit refused zoom levels you could
+  // reach by scrolling.
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min((viewW - pad * 2) / target.w, (viewH - pad * 2) / target.h)));
   return {
     zoom,
     x: viewW / 2 - (target.x + target.w / 2) * zoom,
@@ -307,8 +315,41 @@ export function expandToGroups(items: Item[], ids: Set<string>): Set<string> {
  * not to lose the work entirely. An empty board keeps the absolute floor.
  */
 export function minUsefulZoom(content: Rect | null, viewW: number, viewH: number): number {
-  const FLOOR = 0.05;
-  if (!content || content.w <= 0 || content.h <= 0 || viewW <= 0 || viewH <= 0) return FLOOR;
+  if (!content || content.w <= 0 || content.h <= 0 || viewW <= 0 || viewH <= 0) return MIN_ZOOM;
   const fit = Math.min(viewW / content.w, viewH / content.h);
-  return Math.max(FLOOR, Math.min(1, fit * 0.5));
+  return Math.max(MIN_ZOOM, Math.min(1, fit * ZOOM_OUT_HEADROOM));
+}
+
+/**
+ * Grid spacing that stays readable at every zoom.
+ *
+ * A fixed world spacing fails at both ends — ours was 24 units, which became a
+ * 5px mush zoomed out and a near-empty field zoomed in. So the spacing steps by
+ * decades (1, 2, 5, 10, 20, 50, 100 …) until the dots land inside a comfortable
+ * on-screen band, the way a map's scale bar jumps rather than sliding.
+ *
+ * Returns the spacing in WORLD units, plus how many of them make a major line.
+ */
+export function gridSpacing(zoom: number): { world: number; major: number } {
+  if (!Number.isFinite(zoom) || zoom <= 0) return { world: GRID_BASE, major: GRID_MAJOR_EVERY };
+  const steps = [1, 2, 5];
+  let world = GRID_BASE;
+
+  // Too dense: climb the ladder until the dots are far enough apart.
+  let guard = 0;
+  while (world * zoom < GRID_MIN_SCREEN_PX && guard++ < 40) {
+    const decade = Math.pow(10, Math.floor(Math.log10(world)));
+    const mantissa = world / decade;
+    const next = steps.find((s) => s > mantissa + 1e-9);
+    world = next ? next * decade : decade * 10;
+  }
+  // Too sparse: come back down.
+  guard = 0;
+  while (world * zoom > GRID_MAX_SCREEN_PX && world > 1e-6 && guard++ < 40) {
+    const decade = Math.pow(10, Math.floor(Math.log10(world)));
+    const mantissa = world / decade;
+    const prev = [...steps].reverse().find((s) => s < mantissa - 1e-9);
+    world = prev ? prev * decade : decade / 2;
+  }
+  return { world, major: GRID_MAJOR_EVERY };
 }

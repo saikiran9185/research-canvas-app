@@ -7,6 +7,7 @@
 
 import type { Item, Tool } from "./types";
 import type { HandleId, Point } from "./geometry";
+import { DOUBLE_CLICK_MS } from "./constants";
 
 /** What a press on the board should start. */
 export type Intent =
@@ -90,7 +91,7 @@ export function shouldCapturePointer(intent: Intent): boolean {
  * click to the capture target. So `dblclick` never reached the text or the
  * note, and neither could be edited at all.
  */
-export const DOUBLE_CLICK_MS = 450;
+export { DOUBLE_CLICK_MS };
 
 export function isDoubleClick(
   last: { id: string; at: number },

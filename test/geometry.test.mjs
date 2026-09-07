@@ -9,8 +9,11 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const tmp = mkdtempSync(join(tmpdir(), "rc-geom-"));
-const src = readFileSync("src/geometry.ts", "utf8")
+let src = readFileSync("src/geometry.ts", "utf8")
   .replace('import type { Camera, Item } from "./types";', "");
+// Inline the constants module so the test exercises the real shipped values.
+src = src.replace(/import \{[\s\S]*?\} from "\.\/constants";/,
+  readFileSync("src/constants.ts", "utf8").replace(/^\/\/.*$/gm, ""));
 const tsFile = join(tmp, "geometry.ts");
 writeFileSync(tsFile, src);
 const outFile = join(tmp, "geometry.mjs");
@@ -244,6 +247,47 @@ check("you can pull back past the fit, but not without limit", () => {
 
 check("a tiny board does not force you to zoom in", () => {
   assert.ok(G.minUsefulZoom({ x: 0, y: 0, w: 10, h: 10 }, 800, 600) <= 1);
+});
+
+// ---- a grid you can always read ------------------------------------------
+
+check("grid dots stay in a readable band at every zoom", () => {
+  for (const zoom of [0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16]) {
+    const { world } = G.gridSpacing(zoom);
+    const px = world * zoom;
+    assert.ok(px >= 13 && px <= 81, `at ${zoom}x the dots are ${px.toFixed(1)}px apart`);
+  }
+});
+
+check("grid spacing only ever takes 1-2-5 steps", () => {
+  const seen = new Set();
+  for (let z = 0.05; z <= 16; z *= 1.15) seen.add(G.gridSpacing(z).world);
+  for (const w of seen) {
+    const decade = Math.pow(10, Math.floor(Math.log10(w)));
+    const mantissa = +(w / decade).toFixed(6);
+    assert.ok([1, 2, 5].includes(mantissa), `${w} is not a 1-2-5 step`);
+  }
+});
+
+check("grid spacing grows as you zoom out and shrinks as you zoom in", () => {
+  assert.ok(G.gridSpacing(0.1).world > G.gridSpacing(1).world);
+  assert.ok(G.gridSpacing(8).world < G.gridSpacing(1).world);
+});
+
+check("a nonsense zoom does not hang or return nonsense", () => {
+  for (const z of [0, -1, NaN, Infinity]) {
+    const { world } = G.gridSpacing(z);
+    assert.ok(Number.isFinite(world) && world > 0);
+  }
+});
+
+// ---- one zoom range, not two --------------------------------------------
+
+check("zoom-to-fit and the wheel agree on the ceiling", () => {
+  // These clamps disagreed — 4 in cameraFor against 8 at the wheel — so
+  // zoom-to-fit refused levels you could reach by scrolling.
+  const cam = G.cameraFor({ x: 0, y: 0, w: 1, h: 1 }, 1600, 1200);
+  assert.ok(cam.zoom <= 16 && cam.zoom > 4, `fit reached ${cam.zoom}, expected the shared ceiling`);
 });
 
 console.log(`\n${passed} geometry checks passed`);

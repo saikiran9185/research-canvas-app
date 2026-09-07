@@ -3,6 +3,10 @@ import type React from "react";
 import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptItem } from "./types";
 import { fmtTime, uid } from "./types";
 import { getStroke } from "perfect-freehand";
+import {
+  DRAG_SLOP_PX, EDITOR_SETTLE_MS, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
+  MIN_ITEM_SIZE, NIB, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
+} from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
 import { decidePress, isDoubleClick, shouldCapturePointer, travelled, widthForTool } from "./interaction";
 import { useMediaSrc } from "./media";
@@ -10,7 +14,7 @@ import { renderPage } from "./pdf";
 import { loadDoc } from "./doc";
 import {
   bbox, CURSOR, cameraFor, expandToGroups, fitTo, HANDLES, handlePoint, minUsefulZoom,
-  normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
+  gridSpacing, normalize, overlaps, resizeRect, snapMove, toWorld, translate, union,
   type Guide, type HandleId, type Point, type Rect,
 } from "./geometry";
 
@@ -48,10 +52,6 @@ interface Props {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const MIN_SIZE = 20;
-const SNAP_PX = 6;       // magnet strength, in screen pixels
-const HANDLE_PX = 9;     // grab radius for a resize handle, in screen pixels
-const DRAG_SLOP_PX = 3;  // ignore this much wobble before a click becomes a drag
 
 /** The bare polyline: the hit area, and the fallback for a lone dot. */
 function polylinePath(points: number[]): string {
@@ -83,9 +83,7 @@ function inkOutline(points: number[], size: number): string {
   for (let i = 0; i < points.length; i += 2) pts.push([points[i], points[i + 1]]);
   const outline = getStroke(pts, {
     size,
-    thinning: 0.55,
-    smoothing: 0.55,
-    streamline: 0.4,
+    ...NIB,
     simulatePressure: true,
     last: true,
   });
@@ -199,7 +197,7 @@ export default function Canvas({
     for (const h of HANDLES) {
       const p = handlePoint(box, h);
       const s = { x: p.x * c.zoom + c.x, y: p.y * c.zoom + c.y };
-      if (Math.abs(s.x - local.x) <= HANDLE_PX && Math.abs(s.y - local.y) <= HANDLE_PX) return h;
+      if (Math.abs(s.x - local.x) <= HANDLE_GRAB_PX && Math.abs(s.y - local.y) <= HANDLE_GRAB_PX) return h;
     }
     return null;
   }
@@ -224,7 +222,7 @@ export default function Canvas({
         const wx = (sx - c.x) / c.zoom, wy = (sy - c.y) / c.zoom;
         const floor = locked ? c.zoom
           : minUsefulZoom(union(docRef.current.items), host.clientWidth, host.clientHeight);
-        const zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.01), floor, locked ? c.zoom : 8);
+        const zoom = clamp(c.zoom * Math.exp(-e.deltaY * ZOOM_WHEEL_SENSITIVITY), floor, locked ? c.zoom : MAX_ZOOM);
         setDoc({ ...docRef.current, camera: { x: sx - wx * zoom, y: sy - wy * zoom, zoom } }, false);
       } else {
         if (locked) return;
@@ -481,7 +479,7 @@ export default function Canvas({
       return;
     }
     if (d.mode === "resize") {
-      const next = resizeRect(d.startBox, d.handle, p.x - d.origin.x, p.y - d.origin.y, MIN_SIZE);
+      const next = resizeRect(d.startBox, d.handle, p.x - d.origin.x, p.y - d.origin.y, MIN_ITEM_SIZE);
       const byId = new Map(d.snapshot.map((i) => [i.id, i]));
       setDoc({
         ...docRef.current,
@@ -530,7 +528,7 @@ export default function Canvas({
 
   /** A blur arriving with the opening click is not the person leaving. */
   function onEditorBlur(e: React.FocusEvent<HTMLTextAreaElement>) {
-    if (Date.now() - editorOpenedAt.current < 250) {
+    if (Date.now() - editorOpenedAt.current < EDITOR_SETTLE_MS) {
       e.target.focus();
       return;
     }
@@ -595,6 +593,14 @@ export default function Canvas({
    * zoom level, and laying the DOM blocks out in screen pixels means their
    * text and images are, too.
    */
+  /** The invisible band that makes a thin thing clickable, in WORLD units —
+   *  computed from a constant screen width so the grab area feels the same at
+   *  every zoom. A fixed world width was unclickable zoomed out and enormous
+   *  zoomed in. */
+  const grid = gridSpacing(cam.zoom);
+
+  const hitBand = (size: number) => Math.max(size, (HIT_SLOP_PX * 2) / cam.zoom);
+
   const viewBox = `${-cam.x / cam.zoom} ${-cam.y / cam.zoom} ${Math.max(1, view.w / cam.zoom)} ${Math.max(1, view.h / cam.zoom)}`;
 
   const items = draft ? [...doc.items, draft] : doc.items;
@@ -623,11 +629,14 @@ export default function Canvas({
       onPointerCancel={onHostPointerUp}
     >
       {/* dotted infinite background follows the camera */}
+      {/* The grid steps by decades so the dots stay in a readable band at
+          every zoom, instead of turning to mush zoomed out and vanishing
+          zoomed in. */}
       <div
         className="canvas-grid"
         style={{
           backgroundPosition: `${cam.x}px ${cam.y}px`,
-          backgroundSize: `${24 * cam.zoom}px ${24 * cam.zoom}px`,
+          backgroundSize: `${grid.world * cam.zoom}px ${grid.world * cam.zoom}px`,
         }}
       />
 
@@ -639,7 +648,7 @@ export default function Canvas({
             it.type === "stroke" ? (
               <g key={it.id}>
                 {/* wide invisible hit area for easy selection */}
-                <path d={polylinePath(it.points)} stroke="transparent" strokeWidth={Math.max(it.size, 14)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
+                <path d={polylinePath(it.points)} stroke="transparent" strokeWidth={hitBand(it.size)} fill="none" strokeLinecap="round" style={{ pointerEvents: tool === "select" ? "stroke" : "none", cursor: "move" }} onPointerDown={(e) => itemPointerDown(e, it)} />
                 {it.points.length >= 4 ? (
                   <path d={inkOutline(it.points, it.size)} fill={ink(it.color)} style={{ pointerEvents: "none" }} />
                 ) : (
@@ -648,7 +657,7 @@ export default function Canvas({
                 )}
               </g>
             ) : (
-              <ShapeView key={it.id} item={it as ShapeItem} ink={ink} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
+              <ShapeView key={it.id} item={it as ShapeItem} ink={ink} hitBand={hitBand(it.size)} selectable={tool === "select"} onDown={(e) => itemPointerDown(e, it)} />
             )
           )}
         </svg>
@@ -843,7 +852,7 @@ function isTyping(e: KeyboardEvent): boolean {
   return t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
 }
 
-function ShapeView({ item, ink, selectable, onDown }: { item: ShapeItem; ink: (c: string) => string; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
+function ShapeView({ item, ink, hitBand, selectable, onDown }: { item: ShapeItem; ink: (c: string) => string; hitBand: number; selectable: boolean; onDown: (e: React.PointerEvent) => void }) {
   const s = normRect(item);
   const painted = ink(item.color);
   const filled = !!s.fill && s.fill !== "none";
@@ -868,7 +877,7 @@ function ShapeView({ item, ink, selectable, onDown }: { item: ShapeItem; ink: (c
     <g style={{ pointerEvents: selectable ? "visible" : "none", cursor: "move" }} onPointerDown={onDown}>
       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={painted} strokeWidth={item.size} strokeLinecap="round" />
       <polygon points={`${x2},${y2} ${a1x},${a1y} ${a2x},${a2y}`} fill={painted} />
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={Math.max(item.size, 14)} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={hitBand} />
     </g>
   );
 }
