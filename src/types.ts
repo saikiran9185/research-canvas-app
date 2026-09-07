@@ -73,6 +73,10 @@ export interface ShapeItem extends Base {
 
 export interface TextItem extends Base {
   type: "text";
+  /** Weight and slant, stored as flags rather than a font string so the board
+   *  stays legible when it is opened somewhere that font is not installed. */
+  bold?: boolean;
+  italic?: boolean;
   x: number;
   y: number;
   w: number;

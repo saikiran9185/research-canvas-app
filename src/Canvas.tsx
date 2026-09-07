@@ -666,7 +666,7 @@ export default function Canvas({
                 editingId === it.id ? (
                   <InlineEditor
                     className="text-edit"
-                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}
+                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
                     value={it.text}
                     onChange={(v) => setItemText(it.id, v)}
                     onDone={() => setEditingId(null)}
@@ -679,7 +679,7 @@ export default function Canvas({
                       if (el) textEls.current.set(it.id, el);
                       else textEls.current.delete(it.id);
                     }}
-                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}
+                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom, fontWeight: it.bold ? 700 : undefined, fontStyle: it.italic ? "italic" : undefined }}
                   >
                     {it.text || <span className="placeholder">Text</span>}
                   </div>

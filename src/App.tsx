@@ -15,6 +15,8 @@ import { getTheme, applyTheme, isDark, isDefaultInk, INK, type Theme } from "./t
 import { applyFill, applyInk, applyWidth } from "./interaction";
 import { migrateDoc, syncIndices } from "./order";
 import { shortcutsAllowed } from "./editorScope";
+import { align, distribute, snapToGrid, type Align, type Distribute } from "./arrange";
+import { GRID_BASE } from "./constants";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -277,6 +279,40 @@ export default function App() {
     setFontSize(n);
     restyle((i) => (i.type === "text" ? { ...i, fontSize: n } : i));
   }, [restyle]);
+
+  /** Tidying commands. They act on the selection and land one undo step. */
+  const doAlign = useCallback((how: Align) => {
+    const d = docRef.current;
+    if (!d) return;
+    const next = align(d.items, selectedIds, how);
+    if (next !== d.items) setDoc({ ...d, items: next });
+  }, [selectedIds, setDoc]);
+
+  const doDistribute = useCallback((axis: Distribute) => {
+    const d = docRef.current;
+    if (!d) return;
+    const next = distribute(d.items, selectedIds, axis);
+    if (next !== d.items) setDoc({ ...d, items: next });
+  }, [selectedIds, setDoc]);
+
+  const doSnapToGrid = useCallback(() => {
+    const d = docRef.current;
+    if (!d) return;
+    const next = snapToGrid(d.items, selectedIds, GRID_BASE);
+    if (next !== d.items) setDoc({ ...d, items: next });
+  }, [selectedIds, setDoc]);
+
+  const toggleTextStyle = useCallback((which: "bold" | "italic") => {
+    const d = docRef.current;
+    if (!d) return;
+    const chosen = d.items.filter((i) => selectedIds.has(i.id) && i.type === "text");
+    if (!chosen.length) return;
+    // Turn the whole selection on unless it is already all on, which is what
+    // makes a style button feel like one switch rather than several.
+    const turnOn = !chosen.every((i) => i.type === "text" && i[which]);
+    setDoc({ ...d, items: d.items.map((i) =>
+      selectedIds.has(i.id) && i.type === "text" ? { ...i, [which]: turnOn || undefined } : i) });
+  }, [selectedIds, setDoc]);
 
   const chooseFill = useCallback((c: string) => {
     setFill(c);
@@ -787,6 +823,9 @@ export default function App() {
             size={size} setSize={chooseSize}
             fill={fill} setFill={chooseFill}
             fontSize={fontSize} setFontSize={chooseFontSize}
+            selectionCount={selectedIds.size}
+            onAlign={doAlign} onDistribute={doDistribute} onSnapToGrid={doSnapToGrid}
+            onToggleTextStyle={toggleTextStyle}
             hasSelection={selectedIds.size > 0}
             onImportMedia={importMedia}
             onUndo={undo} onRedo={redo}

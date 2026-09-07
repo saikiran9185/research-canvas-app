@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import type { Tool } from "./types";
 import { reachablePosition } from "./interaction";
+import type { Align, Distribute } from "./arrange";
 
 interface Props {
   tool: Tool;
@@ -14,6 +15,12 @@ interface Props {
   setFill: (c: string) => void;
   fontSize: number;
   setFontSize: (n: number) => void;
+  /** How many items are selected — align and distribute need two and three. */
+  selectionCount: number;
+  onAlign: (how: Align) => void;
+  onDistribute: (axis: Distribute) => void;
+  onSnapToGrid: () => void;
+  onToggleTextStyle: (which: "bold" | "italic") => void;
   onImportMedia: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -254,6 +261,50 @@ export default function Toolbar(p: Props) {
                     aria-pressed={p.fontSize === n}
                   >A</button>
                 ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Tidying. Snapping helps while you drag; it cannot line up six
+              cards you already placed. Shown only when there is something to
+              line up. */}
+          {p.selectionCount >= 2 && (
+            <div className="style-section">
+              <span className="style-label">Arrange</span>
+              <div className="arrange-row">
+                {([
+                  ["left", "Align left", "M4 4v16M8 8h11v3H8zM8 14h7v3H8z"],
+                  ["hcenter", "Align centres", "M12 4v16M6 8h12v3H6zM8 14h8v3H8z"],
+                  ["right", "Align right", "M20 4v16M5 8h11v3H5zM9 14h7v3H9z"],
+                  ["top", "Align top", "M4 4h16M8 8h3v11H8zM14 8h3v7h-3z"],
+                  ["vcenter", "Align middles", "M4 12h16M8 6h3v12H8zM14 8h3v8h-3z"],
+                  ["bottom", "Align bottom", "M4 20h16M8 5h3v11H8zM14 9h3v7h-3z"],
+                ] as [Align, string, string][]).map(([how, label, d]) => (
+                  <button key={how} className="arrange-btn" title={label} aria-label={label} onClick={() => p.onAlign(how)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d={d} /></svg>
+                  </button>
+                ))}
+              </div>
+              <div className="arrange-row">
+                <button className="arrange-btn wide" title="Even out the horizontal gaps" disabled={p.selectionCount < 3} onClick={() => p.onDistribute("horizontal")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 5v14M12 7v10M20 5v14" /></svg>
+                </button>
+                <button className="arrange-btn wide" title="Even out the vertical gaps" disabled={p.selectionCount < 3} onClick={() => p.onDistribute("vertical")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 4h14M7 12h10M5 20h14" /></svg>
+                </button>
+                <button className="arrange-btn wide" title="Snap to the grid" onClick={p.onSnapToGrid}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M4 9h16M4 15h16M9 4v16M15 4v16" /></svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {p.tool === "text" || p.hasSelection ? (
+            <div className="style-section">
+              <span className="style-label">Text style</span>
+              <div className="arrange-row">
+                <button className="arrange-btn" title="Bold" onClick={() => p.onToggleTextStyle("bold")}><b>B</b></button>
+                <button className="arrange-btn" title="Italic" onClick={() => p.onToggleTextStyle("italic")}><i>I</i></button>
               </div>
             </div>
           ) : null}

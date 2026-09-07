@@ -39,3 +39,5 @@ node_modules/.rc-order-*
 node_modules/.rc-scope-*
 
 node_modules/.rc-paste-*
+
+node_modules/.rc-arr-*

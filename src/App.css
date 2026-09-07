@@ -1114,3 +1114,18 @@ body {
 .text-size:nth-child(5) { font-size: 20px; }
 .text-size:hover { background: var(--bg); color: var(--text); }
 .text-size.active { border-color: var(--accent); background: var(--bg); color: var(--accent); }
+
+
+/* Arrange controls. Small, dense, and only present when they can do
+   something — six alignment buttons on a board with one thing selected is
+   just noise. */
+.arrange-row { display: flex; gap: 3px; flex-wrap: wrap; }
+.arrange-btn {
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--muted); cursor: pointer; font-size: var(--text-md);
+}
+.arrange-btn svg { width: 17px; height: 17px; }
+.arrange-btn:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+.arrange-btn:disabled { opacity: 0.3; cursor: default; }
+.arrange-btn.wide { width: 34px; }

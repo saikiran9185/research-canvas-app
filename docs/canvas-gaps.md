@@ -35,9 +35,11 @@ dirty a board simply by opening it.
 
 ## 2. Layout — daily work a research board needs
 
-**Align and distribute.** Snapping helps while you drag; it cannot line up six
-cards you already placed. Align left/centre/right/top/middle/bottom, and
-distribute evenly, are the commands that turn a pile into a layout.
+**Align and distribute.** *Done.* Six alignments and both distributions, plus
+snap-to-grid, in `src/arrange.ts` with 16 tests. Alignment is relative to the
+selection rather than the viewport, and distribution evens the gaps between
+EDGES rather than centres — centres look wrong the moment the things being
+spread are different sizes, which on a research board they always are.
 
 **Crop.** You drop a screenshot to keep one region of it. Today you keep the
 whole thing and resize it small. Cropping on the canvas is the difference
@@ -46,8 +48,8 @@ between a board of evidence and a board of screenshots.
 **Flip, and rotation.** We have neither. Rotation especially: every resize
 handle we draw already implies it, and its absence is noticeable.
 
-**Grid snapping.** We snap to other items but not to the grid, so the grid is
-decoration rather than a tool.
+**Grid snapping.** *Partly done* — a selection can be snapped to the grid on
+demand. Snapping *while dragging* is still item-to-item only.
 
 ## 3. Structure — what will hurt at scale, not yet
 
