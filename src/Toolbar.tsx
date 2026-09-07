@@ -177,8 +177,11 @@ export default function Toolbar(p: Props) {
               {SWATCHES.map((c) => (
                 <button key={c} className={"swatch" + (p.color.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setColor(c)} title={c} aria-label={`Line ${c}`} />
               ))}
-              <div className="color-well" title="Custom line colour">
-                <input type="color" value={p.color} onChange={(e) => p.setColor(e.target.value)} aria-label="Custom line colour" />
+              <div className="color-well" title="Pick any line colour" style={{ background: p.color }}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15.5 4.5a2.1 2.1 0 013 3l-1.6 1.6-3-3zM13.8 6.2l3 3-7.4 7.4-3.6.6.6-3.6z" />
+                </svg>
+                <input type="color" value={p.color} onChange={(e) => p.setColor(e.target.value)} aria-label="Pick any line colour" />
               </div>
               <button
                 className={"swatch no-fill" + (p.size === 0 ? " active" : "")}
@@ -222,12 +225,19 @@ export default function Toolbar(p: Props) {
               {FILLS.map((c) => (
                 <button key={c} className={"swatch" + (p.fill.toLowerCase() === c ? " active" : "")} style={{ background: c }} onClick={() => p.setFill(c)} title={c} aria-label={`Fill ${c}`} />
               ))}
-              <div className={"color-well" + (p.fill === "none" ? " empty" : "")} title="Custom fill colour">
+              <div
+                className={"color-well" + (p.fill === "none" ? " empty" : "")}
+                title="Pick any fill colour"
+                style={p.fill === "none" ? undefined : { background: p.fill }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15.5 4.5a2.1 2.1 0 013 3l-1.6 1.6-3-3zM13.8 6.2l3 3-7.4 7.4-3.6.6.6-3.6z" />
+                </svg>
                 <input
                   type="color"
                   value={p.fill === "none" ? "#ffffff" : p.fill}
                   onChange={(e) => p.setFill(e.target.value)}
-                  aria-label="Custom fill colour"
+                  aria-label="Pick any fill colour"
                 />
               </div>
             </div>

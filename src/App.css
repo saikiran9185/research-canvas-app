@@ -138,8 +138,17 @@ body {
   background-image: radial-gradient(circle, var(--grid-dot) 1.2px, transparent 1.2px);
   background-repeat: repeat;
 }
+/* Neither layer is scaled by CSS any more — see the viewBox comment in
+   Canvas.tsx. `.world` is a zero-size origin whose children are placed in
+   screen pixels; the SVG fills the viewport and carries the camera itself. */
 .world { position: absolute; top: 0; left: 0; width: 0; height: 0; }
-.vector-layer { position: absolute; overflow: visible; }
+.vector-layer {
+  position: absolute; top: 0; left: 0;
+  /* Transparent areas must not swallow clicks meant for the board; the paths
+     inside re-enable hits on themselves. */
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+}
 
 .block { position: absolute; }
 .block.selected { outline: 1.5px solid var(--accent); outline-offset: 1px; }
@@ -212,7 +221,11 @@ body {
    controls live in a panel above it, shown only when they can do something.
    It can be dragged anywhere, and remembers where you put it. */
 .toolbar {
-  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+  /* Fixed to the window, not to the canvas area. Centring it on a container
+     that shrinks when the notes panel opens made the rail jump sideways every
+     time you toggled a panel — which read as the toolbar running away from
+     the cursor. */
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
   z-index: 10; background: var(--panel); border: 1px solid var(--line);
   border-radius: 14px; padding: 6px 8px;
   display: flex; flex-direction: row; align-items: center; gap: 2px;
@@ -275,8 +288,25 @@ body {
   color: var(--muted); font-weight: 600;
 }
 
-.color-well { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
-.color-well input { width: 150%; height: 150%; margin: -25%; border: none; padding: 0; cursor: pointer; background: none; }
+/* The colour well has to read as "pick any colour", not as one more swatch —
+   an unlabelled <input type=color> is indistinguishable from the preset next
+   to it. The nib icon sits on top of the current colour; the input itself is
+   invisible and covers the whole well. */
+.color-well {
+  position: relative; width: 20px; height: 20px; border-radius: 6px;
+  overflow: hidden; border: 1px solid var(--line);
+  display: grid; place-items: center;
+}
+.color-well svg {
+  width: 14px; height: 14px; fill: #fff; pointer-events: none;
+  filter: drop-shadow(0 0 1.5px rgba(0,0,0,0.65));
+}
+.color-well.empty { background: var(--bg); }
+.color-well.empty svg { fill: var(--text); filter: none; }
+.color-well input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; border: none; padding: 0; cursor: pointer; background: none;
+}
 
 .swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .swatch {
@@ -878,3 +908,8 @@ body {
 /* A sticky note is always light paper, so its text must stay dark ink even
    when the rest of the app is in the dark palette. */
 .note, .note-text, .note-edit { color: #1c1917; }
+
+
+/* Media is drawn from its own pixels at the size it occupies on screen, so it
+   stays sharp; ask the browser for the good downsampler while it is at it. */
+.block img, .media img, .pdf-page { image-rendering: auto; }

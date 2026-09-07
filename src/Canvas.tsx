@@ -96,12 +96,15 @@ export default function Canvas({
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [hoverCursor, setHoverCursor] = useState<string | null>(null);
+  const [view, setView] = useState({ w: 0, h: 0 });
   // Handles are hidden mid-gesture so they do not sit under the cursor while
   // the very box they belong to is being dragged.
   const [dragging, setDragging] = useState(false);
 
   const drag = useRef<Drag | null>(null);
   const clipboard = useRef<Item[]>([]);
+  /** Last click, for detecting a double-click ourselves. */
+  const lastClick = useRef<{ id: string; at: number }>({ id: "", at: 0 });
   const [spaceDown, setSpaceDown] = useState(false);
 
   const cam = doc.camera;
@@ -159,6 +162,14 @@ export default function Canvas({
     return null;
   }
 
+  useEffect(() => {
+    const host = hostRef.current!;
+    const ro = new ResizeObserver(() => setView({ w: host.clientWidth, h: host.clientHeight }));
+    ro.observe(host);
+    setView({ w: host.clientWidth, h: host.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
   // --- zoom & pan via wheel (non-passive so we can preventDefault) --------
   useEffect(() => {
     const host = hostRef.current!;
@@ -206,6 +217,12 @@ export default function Canvas({
       }
 
       if (e.key === "Escape") { setSelectedIds(new Set()); setEditingId(null); return; }
+
+      if (e.key === "Enter" && sel.size === 1) {
+        const only = d.items.find((i) => sel.has(i.id));
+        if (only && beginEditing(only)) e.preventDefault();
+        return;
+      }
 
       if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
@@ -446,10 +463,28 @@ export default function Canvas({
     // start of the gesture, and streamed every frame after it with history off.
   }
 
+  /** Text and sticky notes are edited in place; this opens the editor. */
+  function beginEditing(item: Item) {
+    if (item.type !== "text" && item.type !== "note") return false;
+    select(new Set([item.id]));
+    setEditingId(item.id);
+    return true;
+  }
+
   /** Pointer down on an item, in select mode. */
   function itemPointerDown(e: React.PointerEvent, item: Item) {
     if (tool !== "select" || spaceDown) return;
     e.stopPropagation();
+
+    // Detect the double-click ourselves rather than relying on the dblclick
+    // event: capturing the pointer on the host (which we must do, so a drag
+    // that leaves the item keeps tracking) redirects the click to the host,
+    // so dblclick never reaches the text or note and neither could be edited.
+    const now = e.timeStamp || Date.now();
+    const isDouble = lastClick.current.id === item.id && now - lastClick.current.at < 450;
+    lastClick.current = { id: item.id, at: now };
+    if (isDouble && beginEditing(item)) return;
+
     hostRef.current!.setPointerCapture(e.pointerId);
 
     let next: Set<string>;
@@ -474,6 +509,24 @@ export default function Canvas({
   function setItemText(id: string, text: string) {
     setDoc({ ...docRef.current, items: docRef.current.items.map((i) => (i.id === id && (i.type === "text" || i.type === "note") ? { ...i, text } : i)) }, false);
   }
+
+  // World → screen, for laying blocks out in device pixels.
+  const sx = (x: number) => x * cam.zoom + cam.x;
+  const sy = (y: number) => y * cam.zoom + cam.y;
+
+  /**
+   * The world rectangle currently visible, which becomes the SVG viewBox.
+   *
+   * This is what makes the board vector rather than raster. The old layout put
+   * everything inside a div carrying `transform: scale(zoom)`, and a CSS scale
+   * rasterises its whole subtree once at 1x and then stretches that bitmap —
+   * so strokes, arrows, text, images and even the selection outline turned to
+   * mush the moment you zoomed in. Handing the camera to the SVG as a viewBox
+   * instead means the vectors are re-rendered at device resolution at every
+   * zoom level, and laying the DOM blocks out in screen pixels means their
+   * text and images are, too.
+   */
+  const viewBox = `${-cam.x / cam.zoom} ${-cam.y / cam.zoom} ${Math.max(1, view.w / cam.zoom)} ${Math.max(1, view.h / cam.zoom)}`;
 
   const items = draft ? [...doc.items, draft] : doc.items;
   const vectors = items.filter((i) => i.type === "stroke" || i.type === "shape");
@@ -509,9 +562,10 @@ export default function Canvas({
         }}
       />
 
-      <div className="world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.zoom})`, transformOrigin: "0 0" }}>
-        {/* vector layer: strokes + shapes */}
-        <svg className="vector-layer" overflow="visible" width="0" height="0">
+      {/* Vector layer: viewport-sized, camera carried by the viewBox, so every
+          stroke and outline is re-rasterised at device resolution as you zoom
+          rather than being a scaled-up picture of itself. */}
+      <svg className="vector-layer" width={view.w} height={view.h} viewBox={viewBox} preserveAspectRatio="none">
           {vectors.map((it) =>
             it.type === "stroke" ? (
               <g key={it.id}>
@@ -525,25 +579,29 @@ export default function Canvas({
           )}
         </svg>
 
-        {/* block layer: text / notes / media */}
+      {/* Block layer: laid out in screen pixels. Text is rendered by the font
+          engine at its on-screen size, and an image is drawn from its own
+          pixels — neither is a bitmap of a smaller version blown up. */}
+      <div className="world">
         {blocks.map((it) => {
           const b = bbox(it);
           const selected = selectedIds.has(it.id);
+          const z = cam.zoom;
           return (
-            <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: b.x, top: b.y, width: b.w, ...(it.type !== "text" ? { height: b.h } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
+            <div key={it.id} className={"block" + (selected ? " selected" : "")} style={{ left: sx(b.x), top: sy(b.y), width: b.w * z, ...(it.type !== "text" ? { height: b.h * z } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
-                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
+                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
                 ) : (
-                  <div className="text-view" style={{ color: ink(it.color), fontSize: it.fontSize }} onDoubleClick={() => { setEditingId(it.id); setSelectedIds(new Set([it.id])); }}>
+                  <div className="text-view" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}>
                     {it.text || <span className="placeholder">Text</span>}
                   </div>
                 )
               )}
               {it.type === "note" && (
-                <div className="note" style={{ background: it.color }} onDoubleClick={() => { setEditingId(it.id); setSelectedIds(new Set([it.id])); }}>
+                <div className="note" style={{ background: it.color, fontSize: 14 * cam.zoom, borderRadius: 6 * cam.zoom }}>
                   {editingId === it.id ? (
-                    <textarea autoFocus className="note-edit" value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
+                    <textarea autoFocus className="note-edit" style={{ fontSize: 14 * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={() => setEditingId(null)} onPointerDown={(e) => e.stopPropagation()} />
                   ) : (
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
                   )}
@@ -608,7 +666,7 @@ export default function Canvas({
           <button
             key={a.id}
             className="board-pin"
-            style={{ left: a.anchor.worldX ?? 0, top: a.anchor.worldY ?? 0, background: a.color }}
+            style={{ left: sx(a.anchor.worldX ?? 0), top: sy(a.anchor.worldY ?? 0), background: a.color }}
             title={`${a.author}: ${a.text}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => onOpenAnnotation(a)}
@@ -623,15 +681,15 @@ export default function Canvas({
             key={n}
             className="snap-guide"
             style={g.axis === "x"
-              ? { left: g.at, top: g.from, height: g.to - g.from, width: 0 }
-              : { top: g.at, left: g.from, width: g.to - g.from, height: 0 }}
+              ? { left: sx(g.at), top: sy(g.from), height: (g.to - g.from) * cam.zoom, width: 0 }
+              : { top: sy(g.at), left: sx(g.from), width: (g.to - g.from) * cam.zoom, height: 0 }}
           />
         ))}
 
         {/* One outline per selected item, so you can see what is in the set. */}
         {selectedIds.size > 1 && selectedItems.map((it) => {
           const b = bbox(it);
-          return <div key={it.id} className="member-outline" style={{ left: b.x, top: b.y, width: b.w, height: b.h }} />;
+          return <div key={it.id} className="member-outline" style={{ left: sx(b.x), top: sy(b.y), width: b.w * cam.zoom, height: b.h * cam.zoom }} />;
         })}
 
         {/* The selection box: one frame around everything held, with handles
@@ -640,15 +698,17 @@ export default function Canvas({
         {selectionBox && !dragging && (
           <div
             className="selection-box"
-            style={{ left: selectionBox.x, top: selectionBox.y, width: selectionBox.w, height: selectionBox.h }}
+            style={{ left: sx(selectionBox.x), top: sy(selectionBox.y), width: selectionBox.w * cam.zoom, height: selectionBox.h * cam.zoom }}
           >
+            {/* No counter-scaling any more: in screen space a handle is simply
+                the size it is drawn. */}
             {HANDLES.map((h) => {
-              const p = handlePoint({ x: 0, y: 0, w: selectionBox.w, h: selectionBox.h }, h);
+              const p = handlePoint({ x: 0, y: 0, w: selectionBox.w * cam.zoom, h: selectionBox.h * cam.zoom }, h);
               return (
                 <div
                   key={h}
                   className="resize-handle"
-                  style={{ left: p.x, top: p.y, cursor: CURSOR[h], transform: `translate(-50%, -50%) scale(${1 / cam.zoom})` }}
+                  style={{ left: p.x, top: p.y, cursor: CURSOR[h], transform: "translate(-50%, -50%)" }}
                 />
               );
             })}
@@ -657,7 +717,7 @@ export default function Canvas({
 
         {/* rubber band */}
         {marquee && (
-          <div className="marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />
+          <div className="marquee" style={{ left: sx(marquee.x), top: sy(marquee.y), width: marquee.w * cam.zoom, height: marquee.h * cam.zoom }} />
         )}
       </div>
     </div>
