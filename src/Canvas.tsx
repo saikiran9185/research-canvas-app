@@ -14,6 +14,8 @@ import {
 interface Props {
   doc: CanvasDoc;
   setDoc: (next: CanvasDoc, history?: boolean) => void;
+  /** Take an undo point for the board as it stands, before a gesture edits it. */
+  pushHistory: () => void;
   tool: Tool;
   setTool: (t: Tool) => void;
   color: string;
@@ -72,7 +74,7 @@ type Drag =
 
 // ---- component ----------------------------------------------------------
 export default function Canvas({
-  doc, setDoc, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
+  doc, setDoc, pushHistory, tool, setTool, color, size, fill, selectedIds, setSelectedIds,
   annotationCounts, boardNotes, onOpenMedia, onOpenExcerptSource,
   onBoardComment, onOpenAnnotation,
 }: Props) {
@@ -288,6 +290,7 @@ export default function Canvas({
         // A grab on a resize handle beats everything else under the cursor.
         const handle = handleAt(local);
         if (handle && selectionBox) {
+          pushHistory();
           drag.current = { mode: "resize", handle, origin: p, startBox: selectionBox, snapshot: selectedItems };
           setDragging(true);
           return;
@@ -336,6 +339,7 @@ export default function Canvas({
       let dx = p.x - d.origin.x;
       let dy = p.y - d.origin.y;
       if (!d.moved && Math.hypot(dx, dy) * docRef.current.camera.zoom < DRAG_SLOP_PX) return;
+      if (!d.moved) pushHistory();
       d.moved = true;
 
       const sel = selRef.current;
@@ -386,10 +390,8 @@ export default function Canvas({
       setDraft(null);
       return;
     }
-    // A move or resize was streamed with history off; land one undo step now.
-    if ((d.mode === "move" && d.moved) || d.mode === "resize") {
-      setDoc({ ...docRef.current }, true);
-    }
+    // Nothing to commit: move and resize already took their undo point at the
+    // start of the gesture, and streamed every frame after it with history off.
   }
 
   /** Pointer down on an item, in select mode. */

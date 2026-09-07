@@ -125,6 +125,24 @@ export default function App() {
   }, []);
 
   // --- doc mutation with history ----------------------------------------
+
+  /**
+   * Mark the board as it stands as an undo point.
+   *
+   * A drag streams dozens of intermediate states, so it has to be applied with
+   * history off — but then the gesture leaves no undo step at all, and calling
+   * setDoc(…, true) at the *end* records the already-moved board as the thing
+   * to go back to, which makes undo a no-op. The undo point has to be taken
+   * before the first pixel moves, which is what this is for.
+   */
+  const pushHistory = useCallback(() => {
+    if (!docRef.current) return;
+    past.current.push(JSON.stringify(docRef.current));
+    if (past.current.length > 80) past.current.shift();
+    future.current = [];
+    setHist({ u: past.current.length, r: 0 });
+  }, []);
+
   const setDoc = useCallback((next: CanvasDoc, history = true) => {
     if (history && docRef.current) {
       past.current.push(JSON.stringify(docRef.current));
@@ -671,7 +689,7 @@ export default function App() {
           {doc ? (
             <>
               <Canvas
-                doc={doc} setDoc={setDoc}
+                doc={doc} setDoc={setDoc} pushHistory={pushHistory}
                 tool={tool} setTool={setTool}
                 color={color} size={size} fill={fill}
                 selectedIds={selectedIds} setSelectedIds={setSelectedIds}
