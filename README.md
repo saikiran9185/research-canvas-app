@@ -206,3 +206,16 @@ media cards, excerpt backlinks and annotation pins are custom element types
 that neither project can host without a permanent fork. The full reasoning,
 including what we *do* take from open source, is in
 [docs/decisions/0001](docs/decisions/0001-why-we-do-not-build-on-an-existing-canvas.md).
+
+## Installing on macOS
+
+macOS will block the first launch and may call it malware. It is not — the app
+simply has not been notarised by Apple, which requires a paid membership this
+project does not have. One command fixes it:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Research Canvas.app"
+```
+
+The full explanation, the no-Terminal alternative, and how to build it yourself
+instead are in [docs/INSTALL.md](docs/INSTALL.md).
