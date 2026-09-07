@@ -15,6 +15,7 @@ import {
 import { getTheme, applyTheme, isDark, isDefaultInk, INK, type Theme } from "./theme";
 import { applyFill, applyInk, applyWidth } from "./interaction";
 import { migrateDoc, syncIndices } from "./order";
+import { shortcutsAllowed } from "./editorScope";
 import { DialogHost, askText, askConfirm, showAlert } from "./dialogs";
 import Library, { invalidateThumb } from "./Library";
 import {
@@ -631,7 +632,9 @@ export default function App() {
   // --- keyboard shortcuts -----------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement)?.tagName === "TEXTAREA" || (e.target as HTMLElement)?.tagName === "INPUT";
+      // One source of truth, so a shortcut cannot fire into an open editor
+      // just because focus failed to land where it was sent.
+      const typing = !shortcutsAllowed(e);
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo(); else undo();

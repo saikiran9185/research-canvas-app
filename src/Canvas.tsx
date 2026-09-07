@@ -5,8 +5,9 @@ import type { Annotation, CanvasDoc, Item, Tool, ShapeItem, MediaItem, ExcerptIt
 import { fmtTime, uid } from "./types";
 import { inkOutline, normRect, polylinePath, ShapeView } from "./canvas/items";
 import { useCanvasCommands } from "./canvas/useCanvasCommands";
+import { InlineEditor } from "./canvas/InlineEditor";
 import {
-  DRAG_SLOP_PX, EDITOR_SETTLE_MS, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
+  DRAG_SLOP_PX, HANDLE_GRAB_PX, HIT_SLOP_PX, MAX_ZOOM,
   MIN_ITEM_SIZE, SNAP_PX, ZOOM_WHEEL_SENSITIVITY,
 } from "./constants";
 import { contrastsWithPaper, INK, INK_TOKEN, isDefaultInk, resolveInk } from "./theme";
@@ -107,9 +108,6 @@ export default function Canvas({
   const clipboard = useRef<Item[]>([]);
   /** Last click, for detecting a double-click ourselves. */
   const lastClick = useRef<{ id: string; at: number }>({ id: "", at: 0 });
-  /** When the current editor opened, so a blur from the opening click can be
-   *  told apart from the person actually clicking away. */
-  const editorOpenedAt = useRef(0);
   const [spaceDown, setSpaceDown] = useState(false);
 
   const cam = doc.camera;
@@ -294,7 +292,7 @@ export default function Canvas({
       case "text": {
         const id = uid();
         setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "text", x: p.x, y: p.y, w: 220, text: "", color: inkToStore, fontSize: 20 }] });
-        setSelectedIds(new Set([id])); editorOpenedAt.current = Date.now(); setEditingId(id); setTool("select");
+        setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }
       case "comment":
@@ -305,7 +303,7 @@ export default function Canvas({
       case "note": {
         const id = uid();
         setDoc({ ...docRef.current, items: [...docRef.current.items, { id, type: "note", x: p.x, y: p.y, w: 180, h: 180, text: "", color: "#ffe27a" }] });
-        setSelectedIds(new Set([id])); editorOpenedAt.current = Date.now(); setEditingId(id); setTool("select");
+        setSelectedIds(new Set([id])); setEditingId(id); setTool("select");
         return;
       }
       default:
@@ -407,19 +405,10 @@ export default function Canvas({
   function beginEditing(item: Item) {
     if (item.type !== "text" && item.type !== "note") return false;
     select(new Set([item.id]));
-    editorOpenedAt.current = Date.now();
     setEditingId(item.id);
     return true;
   }
 
-  /** A blur arriving with the opening click is not the person leaving. */
-  function onEditorBlur(e: React.FocusEvent<HTMLTextAreaElement>) {
-    if (Date.now() - editorOpenedAt.current < EDITOR_SETTLE_MS) {
-      e.target.focus();
-      return;
-    }
-    setEditingId(null);
-  }
 
   /** Pointer down on an item, in select mode. */
   function itemPointerDown(e: React.PointerEvent, item: Item) {
@@ -569,7 +558,13 @@ export default function Canvas({
             <div key={it.id} className={"block" + (selected ? " selected" : "") + (it.locked ? " is-locked" : "")} style={{ left: sx(b.x), top: sy(b.y), width: b.w * z, ...(it.type !== "text" ? { height: b.h * z } : {}) }} onPointerDown={(e) => itemPointerDown(e, it)}>
               {it.type === "text" && (
                 editingId === it.id ? (
-                  <textarea autoFocus className="text-edit" style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
+                  <InlineEditor
+                    className="text-edit"
+                    style={{ color: ink(it.color), fontSize: it.fontSize * cam.zoom }}
+                    value={it.text}
+                    onChange={(v) => setItemText(it.id, v)}
+                    onDone={() => setEditingId(null)}
+                  />
                 ) : (
                   <div
                     className="text-view"
@@ -587,7 +582,13 @@ export default function Canvas({
               {it.type === "note" && (
                 <div className="note" style={{ background: it.color, fontSize: 14 * cam.zoom, borderRadius: 6 * cam.zoom }}>
                   {editingId === it.id ? (
-                    <textarea autoFocus className="note-edit" style={{ fontSize: 14 * cam.zoom }} value={it.text} onChange={(e) => setItemText(it.id, e.target.value)} onBlur={onEditorBlur} onPointerDown={(e) => e.stopPropagation()} />
+                    <InlineEditor
+                      className="note-edit"
+                      style={{ fontSize: 14 * cam.zoom }}
+                      value={it.text}
+                      onChange={(v) => setItemText(it.id, v)}
+                      onDone={() => setEditingId(null)}
+                    />
                   ) : (
                     <div className="note-text">{it.text || <span className="placeholder">Note…</span>}</div>
                   )}

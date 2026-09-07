@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "node test/geometry.test.mjs && node test/interaction.test.mjs && node test/order.test.mjs && node test/merge.test.mjs",
+    "test": "node test/geometry.test.mjs && node test/interaction.test.mjs && node test/order.test.mjs && node test/editorScope.test.mjs && node test/merge.test.mjs",
     "test:browser": "node test/browser/run.mjs textlayer.html && node test/browser/run.mjs ocr.html && node test/browser/run.mjs annotated-pdf.html",
     "test:all": "npm test && npm run test:browser",
     "app": "node scripts/install-app.mjs",

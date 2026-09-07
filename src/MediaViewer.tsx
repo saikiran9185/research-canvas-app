@@ -6,6 +6,7 @@
 // the window, zooming the canvas, or opening the board on someone else's screen.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { shortcutsAllowed } from "./editorScope";
 import type React from "react";
 import type { Annotation, MediaItem } from "./types";
 import { fmtTime } from "./types";
@@ -429,6 +430,7 @@ export default function MediaViewer({
   // --- keyboard ----------------------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!shortcutsAllowed(e)) return;
       const typing = ["TEXTAREA", "INPUT"].includes((e.target as HTMLElement)?.tagName);
       if (e.key === "Escape") {
         if (pending) setPending(null);

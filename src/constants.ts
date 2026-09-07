@@ -54,9 +54,12 @@ export const HANDLE_DRAW_PX = 10;
  */
 export const HIT_SLOP_PX = 8;
 
-/** A blur this soon after an editor opened is the opening click, not the
- *  person leaving. See the pointer-capture note in interaction.ts. */
-export const EDITOR_SETTLE_MS = 250;
+/**
+ * Retired. This existed to ignore a blur arriving right after an editor
+ * opened, which was a workaround for focus landing unreliably. InlineEditor
+ * focuses deterministically from an effect, so there is no spurious blur to
+ * ignore. Kept only as a note against reintroducing the workaround.
+ */
 
 // ---- snapping -----------------------------------------------------------
 

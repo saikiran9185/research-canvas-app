@@ -15,12 +15,11 @@ import { cameraFor, translate, union, type Measured } from "../geometry";
 import { reorder } from "../order";
 import { selectable } from "../interaction";
 import { uid } from "../types";
+import { shortcutsAllowed } from "../editorScope";
 
-/** Typing into a field takes precedence over every shortcut here. */
-export function isTyping(e: KeyboardEvent): boolean {
-  const t = e.target as HTMLElement;
-  return !!t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
-}
+/** An open editor owns the keyboard; see editorScope.ts for why this is not
+ *  decided by looking at the event target. */
+export const isTyping = (e: KeyboardEvent): boolean => !shortcutsAllowed(e);
 
 export interface CommandDeps {
   docRef: RefObject<CanvasDoc>;

@@ -35,3 +35,5 @@ public/tesseract
 
 # test build scratch
 node_modules/.rc-order-*
+
+node_modules/.rc-scope-*
