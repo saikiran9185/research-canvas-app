@@ -198,3 +198,11 @@ translation, or ideas.
 and any version you distribute or host must stay open source too. That is what
 keeps Research Canvas free, permanently, for everyone. Contributions come in under
 the DCO, so no single person or company owns the codebase and nobody can close it.
+
+## Why not build on Excalidraw or tldraw?
+
+Because Research Canvas is meant to end up community-owned, and because our
+media cards, excerpt backlinks and annotation pins are custom element types
+that neither project can host without a permanent fork. The full reasoning,
+including what we *do* take from open source, is in
+[docs/decisions/0001](docs/decisions/0001-why-we-do-not-build-on-an-existing-canvas.md).
