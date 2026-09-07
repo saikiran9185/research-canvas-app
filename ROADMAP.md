@@ -105,3 +105,9 @@ with no server at all.
 - Packaging for Windows and Linux
 
 Have an idea that isn't here? Open a [Discussion](../../discussions).
+
+## Canvas gaps
+
+A prioritised list of what the canvas still needs — written after reading a
+mature canvas codebase end to end, and honest about which gaps actually bite
+versus which are feature-table filler: [docs/canvas-gaps.md](docs/canvas-gaps.md).
